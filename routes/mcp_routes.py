@@ -13,6 +13,21 @@ import httpx
 from core.database import McpServer, SessionLocal
 from core.middleware import require_admin
 from src.mcp_manager import McpManager
+from src.builtin_mcp import register_host_bridge
+from src.host_bridge_control import (
+    get_host_bridge_status,
+    restart_host_bridge,
+    start_host_bridge,
+    stop_host_bridge,
+)
+from src.mcp_marketplace_catalog import (
+    default_catalog_sources,
+    get_catalog_entry,
+    load_catalog_cache,
+    refresh_catalog_cache,
+)
+from src.mcp_marketplace_runtime import build_mcp_server_config, install_marketplace_entry, status_color
+from src.mcp_marketplace_store import MarketplaceStore
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +55,219 @@ def _load_disabled_map():
 def setup_mcp_routes(mcp_manager: McpManager):
     """Setup MCP routes with the provided manager."""
 
+    def _host_bridge_response(service_result: dict) -> dict:
+        return {
+            "service": service_result,
+            "mcp": mcp_manager.get_server_status("host_access"),
+        }
+
+    def _marketplace_store() -> MarketplaceStore:
+        return MarketplaceStore()
+
+    async def _connect_marketplace_server(entry, installed):
+        config = build_mcp_server_config(entry, installed)
+        db = SessionLocal()
+        try:
+            srv = db.query(McpServer).filter(McpServer.id == config["id"]).first()
+            if not srv:
+                srv = McpServer(id=config["id"], name=config["name"])
+                db.add(srv)
+            srv.name = config["name"]
+            srv.transport = config["transport"]
+            srv.command = config["command"]
+            srv.args = json.dumps(config["args"])
+            srv.env = json.dumps(config["env"])
+            srv.url = config["url"]
+            srv.is_enabled = True
+            db.commit()
+        finally:
+            db.close()
+        connected = await mcp_manager.connect_server(
+            server_id=config["id"],
+            name=config["name"],
+            transport=config["transport"],
+            command=config["command"],
+            args=config["args"],
+            env=config["env"],
+            url=config["url"],
+        )
+        installed.status = "connected" if connected else "error"
+        if not connected:
+            status = mcp_manager.get_server_status(config["id"])
+            installed.last_error = status.get("error")
+        _marketplace_store().save(installed)
+        return installed
+
+    def _installed_payload(installed):
+        status = mcp_manager.get_server_status(installed.mcp_server_id)
+        effective_status = status.get("status") or installed.status
+        return {
+            **installed.to_dict(),
+            "runtime_status": status,
+            "status": effective_status,
+            "status_color": status_color(effective_status),
+            "tool_count": status.get("tool_count", 0),
+        }
+
+    @router.get("/host-bridge/status")
+    def host_bridge_status(request: Request):
+        require_admin(request)
+        return _host_bridge_response(get_host_bridge_status())
+
+    @router.post("/host-bridge/start")
+    async def host_bridge_start(request: Request):
+        require_admin(request)
+        service = start_host_bridge()
+        registered = await register_host_bridge(mcp_manager)
+        response = _host_bridge_response(service)
+        response["registered"] = registered
+        return response
+
+    @router.post("/host-bridge/stop")
+    async def host_bridge_stop(request: Request):
+        require_admin(request)
+        service = stop_host_bridge()
+        await mcp_manager.disconnect_server("host_access")
+        return _host_bridge_response(service)
+
+    @router.post("/host-bridge/restart")
+    async def host_bridge_restart(request: Request):
+        require_admin(request)
+        service = restart_host_bridge()
+        registered = await register_host_bridge(mcp_manager)
+        response = _host_bridge_response(service)
+        response["registered"] = registered
+        return response
+
+    @router.get("/marketplace/catalogs")
+    def marketplace_catalogs(request: Request):
+        require_admin(request)
+        cache = load_catalog_cache()
+        return {"sources": cache.get("sources", []), "refreshed_at": cache.get("refreshed_at"), "errors": cache.get("errors", [])}
+
+    @router.post("/marketplace/catalogs/refresh")
+    def marketplace_refresh_catalogs(request: Request):
+        require_admin(request)
+        return refresh_catalog_cache(default_catalog_sources())
+
+    @router.get("/marketplace/entries")
+    def marketplace_entries(request: Request):
+        require_admin(request)
+        cache = load_catalog_cache()
+        return cache.get("entries", [])
+
+    @router.post("/marketplace/install/{entry_id}")
+    async def marketplace_install(entry_id: str, request: Request):
+        require_admin(request)
+        body = await request.json()
+        config = body.get("config", {}) if isinstance(body, dict) else {}
+        entry = get_catalog_entry(entry_id)
+        if not entry:
+            raise HTTPException(404, "Marketplace entry not found")
+        try:
+            installed = install_marketplace_entry(entry, config)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        installed = _marketplace_store().save(installed)
+        installed = await _connect_marketplace_server(entry, installed)
+        return _installed_payload(installed)
+
+    @router.get("/marketplace/installed")
+    def marketplace_installed(request: Request):
+        require_admin(request)
+        return [_installed_payload(installed) for installed in _marketplace_store().list()]
+
+    async def _marketplace_start_installed(installed_id: str):
+        installed = _marketplace_store().get(installed_id)
+        if not installed:
+            raise HTTPException(404, "Installed marketplace server not found")
+        entry = get_catalog_entry(installed.catalog_entry_id)
+        if not entry:
+            raise HTTPException(404, "Marketplace entry not found")
+        _marketplace_store().append_log(installed_id, "Starting marketplace server", status="starting")
+        installed = await _connect_marketplace_server(entry, installed)
+        return _installed_payload(installed)
+
+    @router.post("/marketplace/installed/{installed_id}/start")
+    async def marketplace_start(installed_id: str, request: Request):
+        require_admin(request)
+        return await _marketplace_start_installed(installed_id)
+
+    @router.post("/marketplace/installed/{installed_id}/stop")
+    async def marketplace_stop(installed_id: str, request: Request):
+        require_admin(request)
+        installed = _marketplace_store().get(installed_id)
+        if not installed:
+            raise HTTPException(404, "Installed marketplace server not found")
+        await mcp_manager.disconnect_server(installed.mcp_server_id)
+        installed = _marketplace_store().append_log(installed_id, "Stopped marketplace server", status="stopped")
+        return _installed_payload(installed)
+
+    @router.post("/marketplace/installed/{installed_id}/restart")
+    async def marketplace_restart(installed_id: str, request: Request):
+        require_admin(request)
+        installed = _marketplace_store().get(installed_id)
+        if not installed:
+            raise HTTPException(404, "Installed marketplace server not found")
+        await mcp_manager.disconnect_server(installed.mcp_server_id)
+        _marketplace_store().append_log(installed_id, "Restarting marketplace server", status="reconnecting")
+        return await _marketplace_start_installed(installed_id)
+
+    @router.post("/marketplace/installed/{installed_id}/configure")
+    async def marketplace_configure(installed_id: str, request: Request):
+        require_admin(request)
+        installed = _marketplace_store().get(installed_id)
+        if not installed:
+            raise HTTPException(404, "Installed marketplace server not found")
+        body = await request.json()
+        config = body.get("config", {}) if isinstance(body, dict) else {}
+        entry = get_catalog_entry(installed.catalog_entry_id)
+        if not entry:
+            raise HTTPException(404, "Marketplace entry not found")
+        try:
+            updated = install_marketplace_entry(entry, config)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        updated.created_at = installed.created_at
+        updated.logs = [*installed.logs, "Updated marketplace server configuration"][-50:]
+        _marketplace_store().save(updated)
+        return await _marketplace_start_installed(installed_id)
+
+    @router.post("/marketplace/installed/{installed_id}/refresh-tools")
+    async def marketplace_refresh_tools(installed_id: str, request: Request):
+        require_admin(request)
+        installed = _marketplace_store().get(installed_id)
+        if not installed:
+            raise HTTPException(404, "Installed marketplace server not found")
+        _marketplace_store().append_log(installed_id, "Refreshing marketplace server tools", status="refreshing")
+        if hasattr(mcp_manager, "refresh_server_tools"):
+            await mcp_manager.refresh_server_tools(installed.mcp_server_id)
+        else:
+            entry = get_catalog_entry(installed.catalog_entry_id)
+            if not entry:
+                raise HTTPException(404, "Marketplace entry not found")
+            await _connect_marketplace_server(entry, installed)
+        installed = _marketplace_store().append_log(installed_id, "Refreshed marketplace server tools", status="connected")
+        return _installed_payload(installed)
+
+    @router.delete("/marketplace/installed/{installed_id}")
+    async def marketplace_uninstall(installed_id: str, request: Request):
+        require_admin(request)
+        installed = _marketplace_store().get(installed_id)
+        if not installed:
+            raise HTTPException(404, "Installed marketplace server not found")
+        await mcp_manager.disconnect_server(installed.mcp_server_id)
+        db = SessionLocal()
+        try:
+            srv = db.query(McpServer).filter(McpServer.id == installed.mcp_server_id).first()
+            if srv:
+                db.delete(srv)
+                db.commit()
+        finally:
+            db.close()
+        _marketplace_store().delete(installed_id)
+        return {"status": "deleted", "id": installed_id}
+
     @router.get("/servers")
     def list_servers(request: Request):
         """List all configured MCP servers with connection status."""
@@ -48,7 +276,9 @@ def setup_mcp_routes(mcp_manager: McpManager):
         try:
             servers = db.query(McpServer).all()
             result = []
+            seen_ids = set()
             for srv in servers:
+                seen_ids.add(srv.id)
                 status = mcp_manager.get_server_status(srv.id)
                 oauth_cfg = json.loads(srv.oauth_config) if srv.oauth_config else None
                 needs_oauth = False
@@ -73,6 +303,29 @@ def setup_mcp_routes(mcp_manager: McpManager):
                     "error": status.get("error"),
                     "has_oauth": oauth_cfg is not None,
                     "needs_oauth": needs_oauth,
+                })
+            for server_id, status in mcp_manager.get_all_statuses().items():
+                if server_id in seen_ids:
+                    continue
+                if status.get("status") == "disconnected" and not status.get("tool_count"):
+                    continue
+                result.append({
+                    "id": server_id,
+                    "name": status.get("name") or server_id,
+                    "transport": status.get("transport"),
+                    "command": None,
+                    "args": [],
+                    "env": {},
+                    "url": status.get("url"),
+                    "is_enabled": True,
+                    "status": status.get("status", "disconnected"),
+                    "tool_count": status.get("tool_count", 0),
+                    "disabled_tool_count": 0,
+                    "enabled_tool_count": status.get("tool_count", 0),
+                    "error": status.get("error"),
+                    "has_oauth": False,
+                    "needs_oauth": False,
+                    "is_runtime_only": True,
                 })
             return result
         finally:
@@ -297,18 +550,27 @@ def setup_mcp_routes(mcp_manager: McpManager):
         db = SessionLocal()
         try:
             srv = db.query(McpServer).filter(McpServer.id == server_id).first()
-            if not srv:
-                raise HTTPException(404, "Server not found")
-            disabled_list = json.loads(srv.disabled_tools) if srv.disabled_tools else []
+            disabled_list = json.loads(srv.disabled_tools) if srv and srv.disabled_tools else []
             disabled_set = set(disabled_list)
         finally:
             db.close()
 
         all_tools = mcp_manager.get_all_tools()
         server_tools = [t for t in all_tools if t["server_id"] == server_id]
+        if not srv and not server_tools:
+            raise HTTPException(404, "Server not found")
         for t in server_tools:
             t["is_disabled"] = t["name"] in disabled_set
         return server_tools
+
+    @router.post("/servers/{server_id}/tools/{tool_name}/call")
+    async def call_server_tool(server_id: str, tool_name: str, request: Request):
+        """Call a tool on a connected MCP server."""
+        require_admin(request)
+        body = await request.json()
+        arguments = body.get("arguments", {}) if isinstance(body, dict) else {}
+        qualified_name = f"mcp__{server_id}__{tool_name}"
+        return await mcp_manager.call_tool(qualified_name, arguments)
 
     @router.patch("/servers/{server_id}/tools")
     async def update_disabled_tools(server_id: str, request: Request):

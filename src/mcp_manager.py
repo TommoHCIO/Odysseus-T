@@ -212,6 +212,35 @@ class McpManager:
         finally:
             db.close()
 
+    async def refresh_server_tools(self, server_id: str) -> Dict[str, Any]:
+        """Reconnect one enabled DB-backed MCP server and return its status."""
+        from core.database import McpServer, SessionLocal
+
+        db = SessionLocal()
+        try:
+            srv = db.query(McpServer).filter(McpServer.id == server_id).first()
+            if not srv:
+                return {"status": "error", "error": "Server not found"}
+            if not srv.is_enabled:
+                return {"status": "disabled", "tool_count": 0}
+            args = json.loads(srv.args) if srv.args else []
+            env = json.loads(srv.env) if srv.env else {}
+            server_config = {
+                "server_id": srv.id,
+                "name": srv.name,
+                "transport": srv.transport,
+                "command": srv.command,
+                "args": args,
+                "env": env,
+                "url": srv.url,
+            }
+        finally:
+            db.close()
+
+        await self.disconnect_server(server_id)
+        await self.connect_server(**server_config)
+        return self.get_server_status(server_id)
+
     async def call_tool(self, qualified_name: str, arguments: Dict) -> Dict:
         """Call an MCP tool by its qualified name (mcp__{server_id}__{tool_name}).
 
@@ -223,6 +252,11 @@ class McpManager:
 
         server_id = parts[1]
         tool_name = parts[2]
+
+        if server_id == "host_access":
+            token = os.environ.get("ODYSSEUS_HOST_BRIDGE_TOKEN", "").strip()
+            if token:
+                arguments = {**arguments, "token": token}
 
         session = self._sessions.get(server_id)
         if not session:

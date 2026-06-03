@@ -385,6 +385,22 @@
         </div>
         <!-- ── Settings tab ── -->
         <div class="memory-tab-panel hidden" data-memory-panel="settings">
+          <div class="admin-card" id="adm-mcp-marketplace">
+            <div class="admin-section-head">
+              <div>
+                <h2 style="margin:0">MCP Marketplace</h2>
+                <p class="memory-desc doclib-desc" style="margin-top:6px;">Browse curated MCP servers, install approved recipes, and manage installed tools.</p>
+              </div>
+              <button class="memory-toolbar-btn" id="adm-mcp-marketplace-refresh">Refresh Catalogs</button>
+            </div>
+            <div class="mcp-marketplace-tabs">
+              <button class="memory-toolbar-btn active" data-mcp-marketplace-tab="browse">Browse</button>
+              <button class="memory-toolbar-btn" data-mcp-marketplace-tab="installed">Installed</button>
+            </div>
+            <div id="adm-mcp-marketplace-msg" class="adm-ep-inline-msg"></div>
+            <div id="adm-mcp-marketplace-browse" class="mcp-marketplace-grid"></div>
+            <div id="adm-mcp-marketplace-installed" class="mcp-marketplace-grid hidden"></div>
+          </div>
           <div class="admin-card">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
               <h2 style="margin:0">Auto-extract memories</h2>

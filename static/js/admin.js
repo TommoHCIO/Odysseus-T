@@ -16,6 +16,29 @@ let _recentlyAddedEpId = null;
 function el(id) { return document.getElementById(id); }
 function esc(s) { return uiModule.esc(s); }
 
+let _mcpMarketplaceEntries = [];
+let _mcpMarketplaceInstalled = [];
+
+function _marketplaceMsg(text, isError = false) {
+  const msg = el('adm-mcp-marketplace-msg');
+  if (!msg) return;
+  msg.textContent = text || '';
+  msg.className = isError ? 'adm-ep-inline-msg admin-error' : 'adm-ep-inline-msg admin-success';
+}
+
+function _statusClass(color) {
+  if (color === 'green') return 'mcp-status-green';
+  if (color === 'yellow') return 'mcp-status-yellow';
+  return 'mcp-status-red';
+}
+
+async function _fetchJson(url, options = {}) {
+  const res = await fetch(url, { credentials: 'same-origin', ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || 'Request failed');
+  return data;
+}
+
 /* ═══════════════════════════════════════════
    USERS TAB
    ═══════════════════════════════════════════ */
@@ -1445,6 +1468,91 @@ async function _saveMcpToolState(serverId, panel) {
   } catch (e) { /* silent */ }
 }
 
+function _ensureHostBridgePanel() {
+  if (el('adm-hostBridgeStatus')) return true;
+  const mcpList = el('adm-mcpList');
+  if (!mcpList?.parentElement) return false;
+  const panel = document.createElement('div');
+  panel.className = 'admin-card';
+  panel.innerHTML = `<h2>Host Access Bridge</h2>
+    <div class="admin-toggle-sub" style="margin-bottom:8px">Control the local Host Access Bridge user service.</div>
+    <div class="settings-row" style="align-items:center;gap:8px;flex-wrap:wrap;">
+      <span id="adm-hostBridgeStatus" class="admin-badge">Unknown</span>
+      <span id="adm-hostBridgeMsg" style="font-size:11px;opacity:0.65;flex:1;min-width:160px;"></span>
+      <button class="admin-btn-sm" id="adm-hostBridgeRefresh">Refresh</button>
+      <button class="admin-btn-sm" id="adm-hostBridgeStart">Start</button>
+      <button class="admin-btn-delete" id="adm-hostBridgeStop">Stop</button>
+      <button class="admin-btn-delete" id="adm-hostBridgeRestart">Restart</button>
+    </div>`;
+  mcpList.parentElement.insertBefore(panel, mcpList);
+  return true;
+}
+
+const hostBridgeEndpoints = {
+  start: '/api/mcp/host-bridge/start',
+  stop: '/api/mcp/host-bridge/stop',
+  restart: '/api/mcp/host-bridge/restart',
+};
+
+function _hostBridgeEndpoint(action) {
+  const endpoint = hostBridgeEndpoints[action];
+  if (!endpoint) throw new Error('Invalid host bridge action');
+  return endpoint;
+}
+
+async function loadHostBridgeStatus() {
+  if (!_ensureHostBridgePanel()) return;
+  const statusEl = el('adm-hostBridgeStatus');
+  const msgEl = el('adm-hostBridgeMsg');
+  try {
+    const res = await fetch('/api/mcp/host-bridge/status', { credentials: 'same-origin' });
+    const data = await res.json();
+    const service = data.service || {};
+    const mcp = data.mcp || {};
+    statusEl.textContent = service.status || 'unknown';
+    msgEl.textContent = `${service.platform || 'unknown'} / ${service.service_name || 'Host Access Bridge'} — MCP: ${mcp.status || (mcp.connected ? 'connected' : 'unknown')}`;
+    statusEl.style.background = service.status === 'running' ? 'color-mix(in srgb, var(--fg) 18%, transparent)' : 'color-mix(in srgb, var(--red) 18%, transparent)';
+  } catch (e) {
+    statusEl.textContent = 'error';
+    msgEl.textContent = e.message;
+  }
+}
+
+async function controlHostBridge(action) {
+  const endpoint = _hostBridgeEndpoint(action);
+  if (!_ensureHostBridgePanel()) return;
+  const msgEl = el('adm-hostBridgeMsg');
+  const buttons = ['adm-hostBridgeRefresh', 'adm-hostBridgeStart', 'adm-hostBridgeStop', 'adm-hostBridgeRestart'].map(el).filter(Boolean);
+  buttons.forEach(btn => btn.disabled = true);
+  try {
+    const res = await fetch(endpoint, { method: 'POST', credentials: 'same-origin' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+    msgEl.textContent = data.service?.message || `Host bridge ${action} requested`;
+    await loadHostBridgeStatus();
+    loadMcpServers();
+  } catch (e) {
+    msgEl.textContent = e.message;
+    msgEl.className = 'admin-error';
+  } finally {
+    buttons.forEach(btn => btn.disabled = false);
+  }
+}
+
+function initHostBridgeControls() {
+  if (!_ensureHostBridgePanel()) return;
+  el('adm-hostBridgeRefresh')?.addEventListener('click', loadHostBridgeStatus);
+  el('adm-hostBridgeStart')?.addEventListener('click', () => controlHostBridge('start'));
+  el('adm-hostBridgeStop')?.addEventListener('click', async () => {
+    if (uiModule.styledConfirm && !await uiModule.styledConfirm('Stop the Host Access Bridge?', { confirmText: 'Stop', danger: true })) return;
+    controlHostBridge('stop');
+  });
+  el('adm-hostBridgeRestart')?.addEventListener('click', async () => {
+    if (uiModule.styledConfirm && !await uiModule.styledConfirm('Restart the Host Access Bridge?', { confirmText: 'Restart', danger: true })) return;
+    controlHostBridge('restart');
+  });
+}
+
 function initMcpForm() {
   const cmdEl = el('adm-mcpCommand');
   if (!cmdEl) return;  // MCP form not present in this build — nothing to wire
@@ -2039,12 +2147,204 @@ function initDangerZone() {
   });
 }
 
+function renderMcpMarketplaceBrowse() {
+  const list = el('adm-mcp-marketplace-browse');
+  if (!list) return;
+  if (!_mcpMarketplaceEntries.length) {
+    list.innerHTML = '<div class="admin-empty">No catalog entries loaded. Refresh catalogs to begin.</div>';
+    return;
+  }
+  list.innerHTML = _mcpMarketplaceEntries.map(entry => `
+    <div class="mcp-marketplace-card" data-entry-id="${esc(entry.id)}">
+      <div class="mcp-marketplace-card-head">
+        <div>
+          <div class="mcp-marketplace-title">${esc(entry.name)}</div>
+          <div class="mcp-marketplace-meta">${esc(entry.runtime)} · ${esc(entry.publisher)} · ${esc(entry.version)}</div>
+        </div>
+        <button class="admin-btn-add" data-mcp-install="${esc(entry.id)}">Install</button>
+      </div>
+      <div class="mcp-marketplace-desc">${esc(entry.description)}</div>
+      <div class="mcp-marketplace-perms">Permissions: ${(entry.permissions || []).map(esc).join(', ') || 'None listed'}</div>
+    </div>
+  `).join('');
+}
+
+async function loadMcpMarketplaceEntries() {
+  const entries = await _fetchJson('/api/mcp/marketplace/entries');
+  _mcpMarketplaceEntries = Array.isArray(entries) ? entries : [];
+  renderMcpMarketplaceBrowse();
+}
+
+async function refreshMcpMarketplaceCatalogs() {
+  _marketplaceMsg('Refreshing catalogs...');
+  await _fetchJson('/api/mcp/marketplace/catalogs/refresh', { method: 'POST' });
+  await loadMcpMarketplaceEntries();
+  _marketplaceMsg('Catalogs refreshed');
+}
+
+async function installMcpMarketplaceEntry(entryId) {
+  const entry = _mcpMarketplaceEntries.find(item => item.id === entryId);
+  if (!entry) return;
+  const config = {};
+  for (const field of (entry.config_fields || [])) {
+    const value = await uiModule.styledPrompt(`${entry.name}: ${field.label || field.name}`, {
+      placeholder: field.type === 'path' ? 'Path' : field.name,
+      confirmText: 'Continue',
+    });
+    if (field.required && !value) {
+      uiModule.showError(`${field.label || field.name} is required`);
+      return;
+    }
+    if (value) config[field.name] = value;
+  }
+  _marketplaceMsg(`Installing ${entry.name}...`);
+  await _fetchJson(`/api/mcp/marketplace/install/${encodeURIComponent(entryId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ config }),
+  });
+  await loadMcpMarketplaceInstalled();
+  _marketplaceMsg(`${entry.name} installed`);
+}
+
+function renderMcpMarketplaceInstalled() {
+  const list = el('adm-mcp-marketplace-installed');
+  if (!list) return;
+  if (!_mcpMarketplaceInstalled.length) {
+    list.innerHTML = '<div class="admin-empty">No marketplace servers installed.</div>';
+    return;
+  }
+  list.innerHTML = _mcpMarketplaceInstalled.map(server => `
+    <div class="mcp-marketplace-card" data-installed-id="${esc(server.id)}">
+      <div class="mcp-marketplace-card-head">
+        <div>
+          <div class="mcp-marketplace-title">${esc(server.name)}</div>
+          <div class="mcp-marketplace-meta">${esc(server.runtime)} · ${esc(server.mcp_server_id)} · ${server.tool_count || 0} tools</div>
+        </div>
+        <span class="mcp-status-pill ${_statusClass(server.status_color)}">${esc(server.status || 'unknown')}</span>
+      </div>
+      <div class="mcp-marketplace-actions">
+        <button class="admin-btn-sm" data-mcp-action="start" data-installed-id="${esc(server.id)}">Start</button>
+        <button class="admin-btn-sm" data-mcp-action="stop" data-installed-id="${esc(server.id)}">Stop</button>
+        <button class="admin-btn-sm" data-mcp-action="restart" data-installed-id="${esc(server.id)}">Restart</button>
+        <button class="admin-btn-sm" data-mcp-action="tools" data-installed-id="${esc(server.id)}">Tools</button>
+        <button class="admin-btn-sm" data-mcp-action="refresh-tools" data-installed-id="${esc(server.id)}">Refresh Tools</button>
+        <button class="admin-btn-delete" data-mcp-action="delete" data-installed-id="${esc(server.id)}">Uninstall</button>
+      </div>
+      <div class="mcp-marketplace-logs">${esc((server.logs || []).slice(-3).join(' · '))}</div>
+      <div class="mcp-marketplace-tools" data-mcp-tools-for="${esc(server.id)}"></div>
+    </div>
+  `).join('');
+}
+
+async function loadMcpMarketplaceInstalled() {
+  const installed = await _fetchJson('/api/mcp/marketplace/installed');
+  _mcpMarketplaceInstalled = Array.isArray(installed) ? installed : [];
+  renderMcpMarketplaceInstalled();
+}
+
+async function runMcpMarketplaceAction(installedId, action) {
+  if (action === 'delete') {
+    if (!await uiModule.styledConfirm('Uninstall this MCP server?', { confirmText: 'Uninstall', danger: true })) return;
+    await _fetchJson(`/api/mcp/marketplace/installed/${encodeURIComponent(installedId)}`, { method: 'DELETE' });
+  } else {
+    await _fetchJson(`/api/mcp/marketplace/installed/${encodeURIComponent(installedId)}/${action}`, { method: 'POST' });
+  }
+  await loadMcpMarketplaceInstalled();
+}
+
+async function loadMcpMarketplaceTools(installedId) {
+  const server = _mcpMarketplaceInstalled.find(item => item.id === installedId);
+  if (!server) return;
+  const box = document.querySelector(`[data-mcp-tools-for="${CSS.escape(installedId)}"]`);
+  if (!box) return;
+  const tools = await _fetchJson(`/api/mcp/servers/${encodeURIComponent(server.mcp_server_id)}/tools`);
+  if (!tools.length) {
+    box.innerHTML = '<div class="admin-empty">No tools discovered. Try Refresh Tools.</div>';
+    return;
+  }
+  box.innerHTML = tools.map(tool => `
+    <div class="mcp-marketplace-tool-row">
+      <div>
+        <div class="mcp-marketplace-title">${esc(tool.name)}</div>
+        <div class="mcp-marketplace-desc">${esc(tool.description || '')}</div>
+      </div>
+      <label class="admin-switch">
+        <input type="checkbox" data-mcp-tool-toggle="${esc(tool.name)}" data-installed-id="${esc(installedId)}" ${tool.is_disabled ? '' : 'checked'}>
+        <span class="admin-slider"></span>
+      </label>
+      <pre class="mcp-marketplace-schema">${esc(JSON.stringify(tool.input_schema || {}, null, 2))}</pre>
+    </div>
+  `).join('');
+}
+
+async function toggleMcpMarketplaceTool(installedId, toolName, enabled) {
+  const server = _mcpMarketplaceInstalled.find(item => item.id === installedId);
+  if (!server) return;
+  const tools = await _fetchJson(`/api/mcp/servers/${encodeURIComponent(server.mcp_server_id)}/tools`);
+  const disabled = tools.filter(tool => tool.is_disabled).map(tool => tool.name);
+  const next = new Set(disabled);
+  if (enabled) next.delete(toolName);
+  else next.add(toolName);
+  await _fetchJson(`/api/mcp/servers/${encodeURIComponent(server.mcp_server_id)}/tools`, {
+    method: 'PATCH',
+    body: JSON.stringify({ disabled: Array.from(next) }),
+  });
+  await _fetchJson(`/api/mcp/marketplace/installed/${encodeURIComponent(installedId)}/refresh-tools`, { method: 'POST' });
+  await loadMcpMarketplaceTools(installedId);
+}
+
+function initMcpMarketplace() {
+  const root = el('adm-mcp-marketplace');
+  if (!root || root.dataset.ready === '1') return;
+  root.dataset.ready = '1';
+
+  el('adm-mcp-marketplace-refresh')?.addEventListener('click', () => {
+    refreshMcpMarketplaceCatalogs().catch(err => _marketplaceMsg(err.message, true));
+  });
+
+  root.querySelectorAll('[data-mcp-marketplace-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.mcpMarketplaceTab;
+      root.querySelectorAll('[data-mcp-marketplace-tab]').forEach(item => item.classList.toggle('active', item === btn));
+      el('adm-mcp-marketplace-browse')?.classList.toggle('hidden', tab !== 'browse');
+      el('adm-mcp-marketplace-installed')?.classList.toggle('hidden', tab !== 'installed');
+      if (tab === 'installed') loadMcpMarketplaceInstalled().catch(err => _marketplaceMsg(err.message, true));
+    });
+  });
+
+  root.addEventListener('click', event => {
+    const installBtn = event.target.closest('[data-mcp-install]');
+    if (installBtn) {
+      installMcpMarketplaceEntry(installBtn.dataset.mcpInstall).catch(err => _marketplaceMsg(err.message, true));
+      return;
+    }
+    const actionBtn = event.target.closest('[data-mcp-action]');
+    if (actionBtn) {
+      if (actionBtn.dataset.mcpAction === 'tools') {
+        loadMcpMarketplaceTools(actionBtn.dataset.installedId).catch(err => _marketplaceMsg(err.message, true));
+      } else {
+        runMcpMarketplaceAction(actionBtn.dataset.installedId, actionBtn.dataset.mcpAction).catch(err => _marketplaceMsg(err.message, true));
+      }
+    }
+  });
+
+  root.addEventListener('change', event => {
+    const toggle = event.target.closest('[data-mcp-tool-toggle]');
+    if (!toggle) return;
+    toggleMcpMarketplaceTool(toggle.dataset.installedId, toggle.dataset.mcpToolToggle, toggle.checked)
+      .catch(err => _marketplaceMsg(err.message, true));
+  });
+
+  loadMcpMarketplaceEntries().catch(() => renderMcpMarketplaceBrowse());
+  loadMcpMarketplaceInstalled().catch(() => renderMcpMarketplaceInstalled());
+}
+
 /* ═══════════════════════════════════════════
    INIT & REFRESH
    ═══════════════════════════════════════════ */
 function initAll() {
   modalEl = el('settings-modal');
-  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initCalDAV, initBackup, initDangerZone, () => settingsModule.initIntegrations()];
+  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initMcpMarketplace, initHostBridgeControls, initCalDAV, initBackup, initDangerZone, () => settingsModule.initIntegrations()];
   for (const fn of inits) {
     try { fn(); } catch (e) { console.error('Admin init error in', fn.name || 'anonymous', e); }
   }
@@ -2057,6 +2357,7 @@ function refreshAll() {
   loadEndpoints();
   loadBuiltinTools();
   loadMcpServers();
+  loadHostBridgeStatus();
 }
 
 /* ═══════════════════════════════════════════
