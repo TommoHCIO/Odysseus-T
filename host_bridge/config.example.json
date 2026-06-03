@@ -1,0 +1,26 @@
+{
+  "bind_host": "127.0.0.1",
+  "port": 8765,
+  "allowed_roots": [],
+  "writable_roots": [],
+  "allowed_commands": [],
+  "blocked_commands": [
+    "shutdown",
+    "reboot",
+    "format",
+    "diskpart",
+    "regedit",
+    "rm -rf",
+    "del /s"
+  ],
+  "confirm_commands": [
+    "git commit",
+    "git push",
+    "rm",
+    "del",
+    "move",
+    "mv"
+  ],
+  "max_runtime_seconds": 30,
+  "max_output_bytes": 1000000
+}

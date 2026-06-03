@@ -86,11 +86,59 @@ _BUILTIN_NPX_SERVERS = {
 MCP_DISABLED = os.environ.get("ODYSSEUS_DISABLE_MCP", "").lower() in ("1", "true", "yes")
 
 
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _host_bridge_config_from_env() -> dict | None:
+    """Return optional host access bridge MCP connection config from env."""
+
+    if not _truthy_env("ODYSSEUS_HOST_BRIDGE_ENABLED"):
+        return None
+
+    token = os.environ.get("ODYSSEUS_HOST_BRIDGE_TOKEN", "").strip()
+    if not token:
+        raise ValueError("ODYSSEUS_HOST_BRIDGE_TOKEN is required when host bridge is enabled")
+
+    return {
+        "server_id": os.environ.get("ODYSSEUS_HOST_BRIDGE_SERVER_ID", "host_access"),
+        "name": os.environ.get("ODYSSEUS_HOST_BRIDGE_NAME", "Host Access Bridge"),
+        "transport": os.environ.get("ODYSSEUS_HOST_BRIDGE_TRANSPORT", "sse"),
+        "url": os.environ.get("ODYSSEUS_HOST_BRIDGE_URL", "http://host.docker.internal:8765/sse"),
+        "env": {"ODYSSEUS_HOST_BRIDGE_TOKEN": token},
+    }
+
+
+async def register_host_bridge(mcp_manager) -> bool:
+    """Register the optional host access MCP bridge when enabled."""
+
+    config = _host_bridge_config_from_env()
+    if not config:
+        return False
+
+    ok = await mcp_manager.connect_server(**config)
+    if ok:
+        logger.info("Host access MCP bridge registered")
+    else:
+        logger.warning("Host access MCP bridge failed to connect")
+    return bool(ok)
+
+
 async def register_builtin_servers(mcp_manager):
     """Connect all built-in MCP servers to the manager."""
     if MCP_DISABLED:
         logger.info("Built-in MCP servers disabled via ODYSSEUS_DISABLE_MCP")
         return
+
+    try:
+        await register_host_bridge(mcp_manager)
+    except ValueError as e:
+        logger.warning(f"Host access MCP bridge not registered: {e}")
+    except asyncio.CancelledError:
+        logger.warning("Host access MCP bridge registration cancelled")
+        raise
+    except BaseException as e:
+        logger.warning(f"Host access MCP bridge registration error: {type(e).__name__}: {e}")
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     python = sys.executable

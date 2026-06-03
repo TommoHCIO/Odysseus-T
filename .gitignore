@@ -87,5 +87,9 @@ docs/windows-port/
 
 # Local config
 compound.config.json
+host_bridge/config.json
 *.error.log
 _scratch/
+
+# Superpowers visual companion temp files
+.superpowers/
