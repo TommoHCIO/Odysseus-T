@@ -2293,6 +2293,37 @@ async function toggleMcpMarketplaceTool(installedId, toolName, enabled) {
   await loadMcpMarketplaceTools(installedId);
 }
 
+function openMcpMarketplaceModal() {
+  const modal = el('mcp-marketplace-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  initMcpMarketplace();
+}
+
+function closeMcpMarketplaceModal() {
+  el('mcp-marketplace-modal')?.classList.add('hidden');
+}
+
+function initMcpMarketplaceRail() {
+  const railBtn = el('rail-mcp-marketplace');
+  if (railBtn && railBtn.dataset.ready !== '1') {
+    railBtn.dataset.ready = '1';
+    railBtn.addEventListener('click', openMcpMarketplaceModal);
+  }
+  const closeBtn = el('close-mcp-marketplace-modal');
+  if (closeBtn && closeBtn.dataset.ready !== '1') {
+    closeBtn.dataset.ready = '1';
+    closeBtn.addEventListener('click', closeMcpMarketplaceModal);
+  }
+  const modal = el('mcp-marketplace-modal');
+  if (modal && modal.dataset.dismissReady !== '1') {
+    modal.dataset.dismissReady = '1';
+    modal.addEventListener('click', event => {
+      if (event.target === modal) closeMcpMarketplaceModal();
+    });
+  }
+}
+
 function initMcpMarketplace() {
   const root = el('adm-mcp-marketplace');
   if (!root || root.dataset.ready === '1') return;
@@ -2344,7 +2375,7 @@ function initMcpMarketplace() {
    ═══════════════════════════════════════════ */
 function initAll() {
   modalEl = el('settings-modal');
-  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initMcpMarketplace, initHostBridgeControls, initCalDAV, initBackup, initDangerZone, () => settingsModule.initIntegrations()];
+  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initMcpMarketplaceRail, initMcpMarketplace, initHostBridgeControls, initCalDAV, initBackup, initDangerZone, () => settingsModule.initIntegrations()];
   for (const fn of inits) {
     try { fn(); } catch (e) { console.error('Admin init error in', fn.name || 'anonymous', e); }
   }
@@ -2375,6 +2406,12 @@ export function open(tab) {
 
 export function close() {
   settingsModule.close();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initMcpMarketplaceRail);
+} else {
+  initMcpMarketplaceRail();
 }
 
 const adminModule = { open, close, _initData, get _initialized() { return initialized; } };
