@@ -5,6 +5,7 @@ import sys
 import pytest
 from fastapi import HTTPException
 
+from core.platform_compat import find_bash
 from routes.cookbook_helpers import (
     _cached_model_scan_script,
     _append_serve_exit_code_lines,
@@ -20,6 +21,10 @@ from routes.cookbook_helpers import (
     _validate_serve_model_id,
     _validate_ssh_port,
 )
+
+
+def _bash_cmd(script: str) -> list[str]:
+    return [find_bash() or "bash", "-c", script]
 
 
 def test_safe_env_prefix_accepts_quoted_venv_path():
@@ -121,18 +126,9 @@ def test_pip_install_fallback_chain_propagates_failure_in_venv():
     reported success even though nothing was installed.  The negated
     `{ ! venv_check && user }` shape propagates the failure correctly.
     """
-    import shlex
-    py = shlex.quote(sys.executable)
-    # Use the venv python so venv_check detects we're in a venv.
-    # Base install fails, venv_check exits 0, negated to 1,
-    # && skips user, group exits 1.
-    script = (
-        f"{py} -c 'import sys; sys.exit(1)' || "
-        f"{{ ! {py} -c \"import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)\" "
-        f"&& echo user_attempt; }}"
-    )
+    script = "false || { ! true && echo user_attempt; }"
     result = subprocess.run(
-        ["bash", "-c", script],
+        _bash_cmd(script),
         capture_output=True, text=True, timeout=10,
     )
     assert "user_attempt" not in result.stdout
@@ -150,7 +146,7 @@ def test_pip_install_fallback_chain_tries_user_outside_venv():
         "'"
     )
     result = subprocess.run(
-        ["bash", "-c", script],
+        _bash_cmd(script),
         capture_output=True, text=True, timeout=10,
     )
     assert "user_attempt" in result.stdout, "Chain should try --user when not in venv and base fails"
@@ -179,7 +175,7 @@ def test_pip_install_attempt_failure_propagates_real_exit_code():
     to confirm the subshell exits with pip's non-zero status."""
     snippet = _pip_install_attempt("python3 -m pip install __nonexistent_package_12345__")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        _bash_cmd(snippet),
         capture_output=True,
         text=True,
         timeout=60,
@@ -189,9 +185,9 @@ def test_pip_install_attempt_failure_propagates_real_exit_code():
 
 def test_pip_install_attempt_success_exits_zero():
     """When pip succeeds, the subshell should exit 0."""
-    snippet = _pip_install_attempt("python3 -c 'pass'")
+    snippet = _pip_install_attempt(f"{sys.executable.replace('\\', '/')} -c 'pass'")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        _bash_cmd(snippet),
         capture_output=True,
         text=True,
         timeout=15,
@@ -203,7 +199,7 @@ def test_pip_install_attempt_surfaces_stderr_on_failure():
     """On failure, the last 5 lines of pip output should appear in stdout."""
     snippet = _pip_install_attempt("python3 -m pip install __nonexistent_package_12345__")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        _bash_cmd(snippet),
         capture_output=True,
         text=True,
         timeout=60,

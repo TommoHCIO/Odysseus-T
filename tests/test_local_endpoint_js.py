@@ -31,10 +31,12 @@ def _is_local(url: str) -> bool:
     js = fn + f"\nconsole.log(JSON.stringify(isLocalEndpoint({json.dumps(url)})));"
     proc = subprocess.run(
         ["node", "--input-type=module"],
-        input=js, capture_output=True, text=True, cwd=str(_REPO), timeout=30,
+        input=js.encode("utf-8"), capture_output=True, cwd=str(_REPO), timeout=30,
     )
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout.strip())
+    stderr = proc.stderr.decode("utf-8", errors="replace")
+    stdout = proc.stdout.decode("utf-8", errors="replace")
+    assert proc.returncode == 0, stderr
+    return json.loads(stdout.strip())
 
 
 @pytest.mark.skipif(not _HAS_NODE, reason="node binary not on PATH")

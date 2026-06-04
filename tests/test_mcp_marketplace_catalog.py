@@ -131,3 +131,80 @@ def test_load_catalog_cache_refreshes_stale_single_source_cache(monkeypatch, tmp
 
     assert len(cache["sources"]) >= 2
     assert {entry["id"] for entry in cache["entries"]} >= {"filesystem", "sqlite", "playwright", "github"}
+
+
+def test_catalog_entry_preserves_categories_tags_and_package_type():
+    raw = {
+        "id": "registry-search",
+        "name": "Registry Search",
+        "description": "Search MCP",
+        "publisher": "registry",
+        "version": "1.0.0",
+        "runtime": "npm",
+        "recipe": {"package": "registry-search-mcp"},
+        "config_fields": [],
+        "permissions": [],
+        "source_url": "https://registry.modelcontextprotocol.io",
+        "categories": ["Search"],
+        "tags": ["registry", "npm"],
+        "package_type": "npm",
+    }
+
+    entry = CatalogEntry.from_raw(raw, source_id="official-mcp-registry", source_priority=60)
+
+    assert entry.categories == ["Search"]
+    assert entry.tags == ["registry", "npm"]
+    assert entry.package_type == "npm"
+    assert entry.to_dict()["categories"] == ["Search"]
+
+
+def test_registry_source_is_loaded_through_fetcher(monkeypatch):
+    from src import mcp_marketplace_catalog as catalog
+
+    def fake_fetch(url, source_id, source_priority):
+        assert url == "https://registry.example/v0.1/servers"
+        assert source_id == "official-mcp-registry"
+        assert source_priority == 60
+        return [{
+            "id": "registry-one",
+            "name": "Registry One",
+            "description": "One",
+            "publisher": "Registry",
+            "version": "1",
+            "runtime": "npm",
+            "recipe": {"package": "one-mcp"},
+            "config_fields": [],
+            "permissions": [],
+            "source_url": "https://registry.example",
+            "categories": ["Registry"],
+            "tags": ["registry"],
+            "package_type": "npm",
+        }]
+
+    monkeypatch.setattr(catalog, "fetch_registry_catalog", fake_fetch)
+    sources = [CatalogSource(id="official-mcp-registry", name="Official MCP Registry", priority=60, path="https://registry.example/v0.1/servers", type="registry")]
+
+    entries, errors = normalize_catalog_entries(sources)
+
+    assert errors == []
+    assert entries[0].id == "registry-one"
+    assert entries[0].categories == ["Registry"]
+
+
+def test_default_catalog_sources_are_local_by_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("ODYSSEUS_MCP_MARKETPLACE_DIR", str(tmp_path))
+
+    sources = default_catalog_sources()
+
+    assert {source.id for source in sources} >= {"odysseus-curated", "odysseus-community-curated"}
+    assert "official-mcp-registry" not in {source.id for source in sources}
+
+
+def test_default_catalog_sources_can_include_external_registry(monkeypatch, tmp_path):
+    monkeypatch.setenv("ODYSSEUS_MCP_MARKETPLACE_DIR", str(tmp_path))
+
+    sources = default_catalog_sources(include_external=True)
+    registry = [source for source in sources if source.id == "official-mcp-registry"][0]
+
+    assert registry.type == "registry"
+    assert registry.path == "https://registry.modelcontextprotocol.io/v0.1/servers"

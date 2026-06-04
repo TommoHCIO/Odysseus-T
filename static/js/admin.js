@@ -18,6 +18,7 @@ function esc(s) { return uiModule.esc(s); }
 
 let _mcpMarketplaceEntries = [];
 let _mcpMarketplaceInstalled = [];
+let _mcpMarketplaceVisibleCount = 48;
 
 function _marketplaceMsg(text, isError = false) {
   const msg = el('adm-mcp-marketplace-msg');
@@ -2147,31 +2148,99 @@ function initDangerZone() {
   });
 }
 
+function _entryText(entry) {
+  return [
+    entry.name,
+    entry.description,
+    entry.publisher,
+    entry.package_type,
+    entry.runtime,
+    entry.source_id,
+    ...(entry.tags || []),
+    ...(entry.categories || []),
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function filterMcpMarketplaceEntries(entries) {
+  const query = (el('adm-mcp-marketplace-search')?.value || '').trim().toLowerCase();
+  const category = el('adm-mcp-marketplace-category')?.value || '';
+  const runtime = el('adm-mcp-marketplace-runtime')?.value || '';
+  const source = el('adm-mcp-marketplace-source')?.value || '';
+  return entries.filter(entry => {
+    if (query && !_entryText(entry).includes(query)) return false;
+    if (category && !(entry.categories || []).includes(category)) return false;
+    if (runtime && entry.runtime !== runtime) return false;
+    if (source && entry.source_id !== source) return false;
+    return true;
+  });
+}
+
+function _setSelectOptions(selectId, values, label) {
+  const select = el(selectId);
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = `<option value="">${label}</option>` + values.map(value => `<option value="${esc(value)}">${esc(value)}</option>`).join('');
+  if (values.includes(current)) select.value = current;
+}
+
+function renderMcpMarketplaceFilterOptions(entries) {
+  const categories = [...new Set(entries.flatMap(entry => entry.categories || []))].sort((a, b) => a.localeCompare(b));
+  const runtimes = [...new Set(entries.map(entry => entry.runtime).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const sources = [...new Set(entries.map(entry => entry.source_id).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  _setSelectOptions('adm-mcp-marketplace-category', categories, 'All categories');
+  _setSelectOptions('adm-mcp-marketplace-runtime', runtimes, 'All runtimes');
+  _setSelectOptions('adm-mcp-marketplace-source', sources, 'All sources');
+}
+
 function renderMcpMarketplaceBrowse() {
   const list = el('adm-mcp-marketplace-browse');
   if (!list) return;
+  const filtered = filterMcpMarketplaceEntries(_mcpMarketplaceEntries);
+  const visible = filtered.slice(0, _mcpMarketplaceVisibleCount);
+  const browseActive = !el('adm-mcp-marketplace-browse')?.classList.contains('hidden');
+  const loadMore = el('adm-mcp-marketplace-load-more');
+  if (loadMore) {
+    loadMore.classList.toggle('hidden', !browseActive || filtered.length <= _mcpMarketplaceVisibleCount);
+    loadMore.textContent = `Load More (${filtered.length - visible.length} remaining)`;
+  }
   if (!_mcpMarketplaceEntries.length) {
     list.innerHTML = '<div class="admin-empty">No catalog entries loaded. Refresh catalogs to begin.</div>';
     return;
   }
-  list.innerHTML = _mcpMarketplaceEntries.map(entry => `
+  if (!visible.length) {
+    list.innerHTML = '<div class="admin-empty">No matching marketplace entries.</div>';
+    return;
+  }
+  list.innerHTML = visible.map(entry => {
+    const meta = [entry.package_type || entry.runtime, entry.source_id, ...(entry.categories || []).slice(0, 2)]
+      .filter(Boolean)
+      .map(value => `<span class="mcp-marketplace-meta-badge">${esc(value)}</span>`)
+      .join('');
+    const tags = (entry.tags || []).slice(0, 3)
+      .map(value => `<span class="mcp-marketplace-meta-badge">${esc(value)}</span>`)
+      .join('');
+    return `
     <div class="mcp-marketplace-card" data-entry-id="${esc(entry.id)}">
       <div class="mcp-marketplace-card-head">
         <div>
           <div class="mcp-marketplace-title">${esc(entry.name)}</div>
           <div class="mcp-marketplace-meta">${esc(entry.runtime)} · ${esc(entry.publisher)} · ${esc(entry.version)}</div>
+          <div class="mcp-marketplace-card-meta">${meta}${tags}</div>
         </div>
         <button class="admin-btn-add" data-mcp-install="${esc(entry.id)}">Install</button>
       </div>
       <div class="mcp-marketplace-desc">${esc(entry.description)}</div>
       <div class="mcp-marketplace-perms">Permissions: ${(entry.permissions || []).map(esc).join(', ') || 'None listed'}</div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function loadMcpMarketplaceEntries() {
   const entries = await _fetchJson('/api/mcp/marketplace/entries');
   _mcpMarketplaceEntries = Array.isArray(entries) ? entries : [];
+  _mcpMarketplaceVisibleCount = 48;
+  renderMcpMarketplaceFilterOptions(_mcpMarketplaceEntries);
   renderMcpMarketplaceBrowse();
 }
 
@@ -2310,6 +2379,11 @@ function initMcpMarketplaceRail() {
     railBtn.dataset.ready = '1';
     railBtn.addEventListener('click', openMcpMarketplaceModal);
   }
+  const sidebarBtn = el('tool-mcp-marketplace-btn');
+  if (sidebarBtn && sidebarBtn.dataset.ready !== '1') {
+    sidebarBtn.dataset.ready = '1';
+    sidebarBtn.addEventListener('click', openMcpMarketplaceModal);
+  }
   const closeBtn = el('close-mcp-marketplace-modal');
   if (closeBtn && closeBtn.dataset.ready !== '1') {
     closeBtn.dataset.ready = '1';
@@ -2338,10 +2412,31 @@ function initMcpMarketplace() {
       const tab = btn.dataset.mcpMarketplaceTab;
       root.querySelectorAll('[data-mcp-marketplace-tab]').forEach(item => item.classList.toggle('active', item === btn));
       el('adm-mcp-marketplace-browse')?.classList.toggle('hidden', tab !== 'browse');
+      el('adm-mcp-marketplace-filters')?.classList.toggle('hidden', tab !== 'browse');
+      el('adm-mcp-marketplace-load-more')?.classList.toggle('hidden', tab !== 'browse' || filterMcpMarketplaceEntries(_mcpMarketplaceEntries).length <= _mcpMarketplaceVisibleCount);
       el('adm-mcp-marketplace-installed')?.classList.toggle('hidden', tab !== 'installed');
       if (tab === 'installed') loadMcpMarketplaceInstalled().catch(err => _marketplaceMsg(err.message, true));
     });
   });
+
+  ['adm-mcp-marketplace-search', 'adm-mcp-marketplace-category', 'adm-mcp-marketplace-runtime', 'adm-mcp-marketplace-source'].forEach(id => {
+    const control = el(id);
+    if (control && control.dataset.filterReady !== '1') {
+      control.dataset.filterReady = '1';
+      control.addEventListener(id === 'adm-mcp-marketplace-search' ? 'input' : 'change', () => {
+        _mcpMarketplaceVisibleCount = 48;
+        renderMcpMarketplaceBrowse();
+      });
+    }
+  });
+  const loadMore = el('adm-mcp-marketplace-load-more');
+  if (loadMore && loadMore.dataset.ready !== '1') {
+    loadMore.dataset.ready = '1';
+    loadMore.addEventListener('click', () => {
+      _mcpMarketplaceVisibleCount += 48;
+      renderMcpMarketplaceBrowse();
+    });
+  }
 
   root.addEventListener('click', event => {
     const installBtn = event.target.closest('[data-mcp-install]');

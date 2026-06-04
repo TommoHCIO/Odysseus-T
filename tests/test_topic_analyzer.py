@@ -1,12 +1,20 @@
 """Tests for topic keyword matching (src/topic_analyzer.py)."""
+import importlib
+import sys
+from datetime import datetime
 from types import SimpleNamespace
-import pytest
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from core.database import Base, Session as DbSession, ChatMessage as DbChatMessage
-from core.session_manager import SessionManager
 from src.topic_analyzer import analyze_topics
-from datetime import datetime
+
+
+def _real_database_module():
+    sys.modules.pop("core.database", None)
+    core_module = sys.modules.get("core")
+    if core_module is not None and hasattr(core_module, "database"):
+        delattr(core_module, "database")
+    return importlib.import_module("core.database")
 
 
 def _sm(*messages):
@@ -36,18 +44,21 @@ def test_multiword_keyword_matches():
 
 
 def test_topic_analyzer_hydrates_sessions(monkeypatch):
+    database = _real_database_module()
+    from core.session_manager import SessionManager
+
     # 1. Create clean in-memory database
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=engine)
-    
+    database.Base.metadata.create_all(bind=engine)
+
     # 2. Create test session factory
     TestSessionLocal = sessionmaker(bind=engine)
-    
+
     # 3. Populate test database with a session and a message about Python
     db = TestSessionLocal()
     session_id = "session-1"
-    
-    s = DbSession(
+
+    s = database.Session(
         id=session_id,
         name="Python chat",
         endpoint_url="http://localhost:8000",
@@ -57,25 +68,24 @@ def test_topic_analyzer_hydrates_sessions(monkeypatch):
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
     )
-    m = DbChatMessage(
+    m = database.ChatMessage(
         id="msg-1",
         session_id=session_id,
         role="user",
         content="I love writing python code.",
         timestamp=datetime.utcnow()
     )
-    
+
     db.add(s)
     db.add(m)
     db.commit()
     db.close()
-    
+
     # 4. Patch SessionLocal to use our in-memory DB
-    import core.session_manager
-    import core.database
-    monkeypatch.setattr(core.session_manager, "SessionLocal", TestSessionLocal)
-    monkeypatch.setattr(core.database, "SessionLocal", TestSessionLocal)
-    
+    session_manager_module = importlib.import_module("core.session_manager")
+    monkeypatch.setattr(session_manager_module, "SessionLocal", TestSessionLocal)
+    monkeypatch.setattr(database, "SessionLocal", TestSessionLocal)
+
     # 5. Initialize the real SessionManager and load metadata (seeds sessions with empty history)
     sm = SessionManager()
     

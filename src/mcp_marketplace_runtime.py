@@ -12,6 +12,7 @@ from src.mcp_marketplace_store import InstalledMarketplaceServer
 
 _SAFE_ID = re.compile(r"^[a-zA-Z0-9_.-]+$")
 _SAFE_PACKAGE = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*(?:@[a-zA-Z0-9._-]+)?$")
+_SAFE_IMAGE = re.compile(r"^[a-z0-9]+(?:(?:[._-][a-z0-9]+)+)?(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._-][a-z0-9]+)+)?)*(?::[A-Za-z0-9_.-]+)?$")
 
 
 def marketplace_install_dir(entry_id: str, base_dir: Path | str = "data/mcp_marketplace") -> Path:
@@ -42,6 +43,11 @@ def _validate_package_identifier(package: str) -> None:
         raise ValueError("Invalid package identifier")
 
 
+def _validate_image_identifier(image: str) -> None:
+    if not _SAFE_IMAGE.match(image):
+        raise ValueError("Invalid image identifier")
+
+
 def validate_recipe(entry: CatalogEntry, config: Dict[str, Any]) -> None:
     missing = [field["name"] for field in entry.config_fields if field.get("required") and not config.get(field["name"])]
     if missing:
@@ -53,7 +59,7 @@ def validate_recipe(entry: CatalogEntry, config: Dict[str, Any]) -> None:
     if entry.runtime == "docker" and not entry.recipe.get("image"):
         raise ValueError("image is required for docker runtime")
     if entry.runtime == "docker":
-        _validate_package_identifier(str(entry.recipe["image"]))
+        _validate_image_identifier(str(entry.recipe["image"]))
     if entry.runtime == "sse" and not entry.recipe.get("url"):
         raise ValueError("url is required for sse runtime")
     if "command" in entry.recipe:

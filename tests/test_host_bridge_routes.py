@@ -139,6 +139,45 @@ def test_mcp_server_tools_includes_live_host_access_without_db_row(monkeypatch):
     assert tools[0]["is_disabled"] is False
 
 
+def test_mcp_server_tools_ignores_malformed_disabled_tools_row(monkeypatch):
+    class ManagerWithLiveHost(FakeMcpManager):
+        def get_all_tools(self, disabled_map=None):
+            return [
+                {
+                    "server_id": "host_access",
+                    "server_name": "Host Access Bridge",
+                    "name": "host_health",
+                    "qualified_name": "mcp__host_access__host_health",
+                    "description": "Host health",
+                    "is_disabled": False,
+                }
+            ]
+
+    class FakeQuery:
+        def filter(self, condition):
+            return self
+
+        def first(self):
+            return type("ServerRow", (), {"disabled_tools": object()})()
+
+    class FakeSession:
+        def query(self, model):
+            return FakeQuery()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(mcp_routes, "require_admin", lambda request: None)
+    monkeypatch.setattr(mcp_routes, "SessionLocal", lambda: FakeSession())
+
+    response = make_client(ManagerWithLiveHost()).get("/api/mcp/servers/host_access/tools")
+
+    assert response.status_code == 200
+    tools = response.json()
+    assert tools[0]["name"] == "host_health"
+    assert tools[0]["is_disabled"] is False
+
+
 def test_mcp_server_tool_call_uses_mcp_manager_for_runtime_only_host_access(monkeypatch):
     manager = FakeMcpManager()
     monkeypatch.setattr(mcp_routes, "require_admin", lambda request: None)

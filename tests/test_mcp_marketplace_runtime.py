@@ -76,3 +76,42 @@ def test_build_mcp_server_config_for_sse():
     assert config["transport"] == "sse"
     assert config["url"] == "http://127.0.0.1:9999/sse"
     assert installed.managed_process is False
+
+
+def test_validate_recipe_accepts_registry_oci_image_identifier():
+    docker_entry = CatalogEntry(
+        id="docker-registry",
+        name="Docker Registry MCP",
+        description="Docker registry image",
+        publisher="Registry",
+        version="1.0.0",
+        runtime="docker",
+        recipe={"image": "ghcr.io/acme/mcp-server:1.0.0", "args": []},
+        config_fields=[],
+        permissions=[],
+        source_url="https://registry.modelcontextprotocol.io",
+        source_id="official-mcp-registry",
+        source_priority=60,
+    )
+
+    validate_recipe(docker_entry, {})
+
+
+def test_validate_recipe_rejects_malformed_docker_image_identifier():
+    docker_entry = CatalogEntry(
+        id="bad-docker",
+        name="Bad Docker MCP",
+        description="Bad docker image",
+        publisher="Registry",
+        version="1.0.0",
+        runtime="docker",
+        recipe={"image": "ghcr.io/acme/mcp;rm -rf /", "args": []},
+        config_fields=[],
+        permissions=[],
+        source_url="https://registry.modelcontextprotocol.io",
+        source_id="official-mcp-registry",
+        source_priority=60,
+    )
+
+    with pytest.raises(ValueError, match="Invalid image identifier"):
+        validate_recipe(docker_entry, {})

@@ -32,7 +32,7 @@ def _run_markdown_case(markdown: str) -> str:
 
         let source = fs.readFileSync('./static/js/markdown.js', 'utf8');
         source = source.replace(
-          "import uiModule from './ui.js';\\n\\nvar escapeHtml = uiModule.esc;",
+          /import uiModule from '\\.\\/ui\\.js';\\s*var escapeHtml = uiModule\\.esc;/,
           `var escapeHtml = (value) => String(value ?? '')
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')

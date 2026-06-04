@@ -148,7 +148,7 @@ def setup_mcp_routes(mcp_manager: McpManager):
     @router.post("/marketplace/catalogs/refresh")
     def marketplace_refresh_catalogs(request: Request):
         require_admin(request)
-        return refresh_catalog_cache(default_catalog_sources())
+        return refresh_catalog_cache(default_catalog_sources(include_external=True))
 
     @router.get("/marketplace/entries")
     def marketplace_entries(request: Request):
@@ -550,7 +550,12 @@ def setup_mcp_routes(mcp_manager: McpManager):
         db = SessionLocal()
         try:
             srv = db.query(McpServer).filter(McpServer.id == server_id).first()
-            disabled_list = json.loads(srv.disabled_tools) if srv and srv.disabled_tools else []
+            disabled_list = []
+            if srv and srv.disabled_tools:
+                try:
+                    disabled_list = json.loads(srv.disabled_tools)
+                except (json.JSONDecodeError, TypeError):
+                    disabled_list = []
             disabled_set = set(disabled_list)
         finally:
             db.close()
