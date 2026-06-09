@@ -3469,6 +3469,16 @@ function startOdysseusApp() {
     }
   });
 
+  const marketplaceRailBtn = el('rail-mcp-marketplace');
+  const marketplaceToolBtn = el('tool-mcp-marketplace-btn');
+  [marketplaceRailBtn, marketplaceToolBtn].forEach((btn) => {
+    if (btn) {
+      btn.addEventListener('click', () => {
+        adminModule.openMcpMarketplace?.();
+      });
+    }
+  });
+
   // Rail chats — click to open the completed background session
   const _railChatsBtn = el('rail-chats');
   if (_railChatsBtn) {

@@ -3,6 +3,8 @@
 
 import uiModule from './ui.js';
 import settingsModule from './settings.js';
+import * as Modals from './modalManager.js';
+import { makeWindowDraggable } from './windowDrag.js';
 import { providerLogo } from './providers.js';
 import { sortModelObjects } from './modelSort.js';
 
@@ -18,6 +20,21 @@ function esc(s) { return uiModule.esc(s); }
 
 let _mcpMarketplaceEntries = [];
 let _mcpMarketplaceInstalled = [];
+let _mcpMarketplaceDragWired = false;
+
+function _wireMcpMarketplaceDrag(modal) {
+  if (_mcpMarketplaceDragWired || !modal) return;
+  const content = modal.querySelector('.modal-content');
+  const header = modal.querySelector('.modal-header');
+  if (!content || !header) return;
+  _mcpMarketplaceDragWired = true;
+  makeWindowDraggable(modal, {
+    content,
+    header,
+    skipSelector: '.close-btn, .modal-close',
+    enableDock: true,
+  });
+}
 
 function _marketplaceMsg(text, isError = false) {
   const msg = el('adm-mcp-marketplace-msg');
@@ -2226,6 +2243,7 @@ function renderMcpMarketplaceInstalled() {
         <button class="admin-btn-sm" data-mcp-action="start" data-installed-id="${esc(server.id)}">Start</button>
         <button class="admin-btn-sm" data-mcp-action="stop" data-installed-id="${esc(server.id)}">Stop</button>
         <button class="admin-btn-sm" data-mcp-action="restart" data-installed-id="${esc(server.id)}">Restart</button>
+        <button class="admin-btn-sm" data-mcp-action="configure" data-installed-id="${esc(server.id)}">Configure</button>
         <button class="admin-btn-sm" data-mcp-action="tools" data-installed-id="${esc(server.id)}">Tools</button>
         <button class="admin-btn-sm" data-mcp-action="refresh-tools" data-installed-id="${esc(server.id)}">Refresh Tools</button>
         <button class="admin-btn-delete" data-mcp-action="delete" data-installed-id="${esc(server.id)}">Uninstall</button>
@@ -2250,6 +2268,32 @@ async function runMcpMarketplaceAction(installedId, action) {
     await _fetchJson(`/api/mcp/marketplace/installed/${encodeURIComponent(installedId)}/${action}`, { method: 'POST' });
   }
   await loadMcpMarketplaceInstalled();
+}
+
+async function configureMcpMarketplaceInstalled(installedId) {
+  const server = _mcpMarketplaceInstalled.find(item => item.id === installedId);
+  if (!server) return;
+  const config = { ...(server.config || {}) };
+  for (const field of (server.config_fields || [])) {
+    const value = await uiModule.styledPrompt(`${server.name}: ${field.label || field.name}`, {
+      placeholder: field.type === 'path' ? 'Path' : field.name,
+      defaultValue: config[field.name] || '',
+      confirmText: 'Save',
+    });
+    if (field.required && !value) {
+      uiModule.showError(`${field.label || field.name} is required`);
+      return;
+    }
+    if (value) config[field.name] = value;
+    else delete config[field.name];
+  }
+  _marketplaceMsg(`Updating ${server.name}...`);
+  await _fetchJson(`/api/mcp/marketplace/installed/${encodeURIComponent(installedId)}/configure`, {
+    method: 'POST',
+    body: JSON.stringify({ config }),
+  });
+  await loadMcpMarketplaceInstalled();
+  _marketplaceMsg(`${server.name} configured`);
 }
 
 async function loadMcpMarketplaceTools(installedId) {
@@ -2322,6 +2366,8 @@ function initMcpMarketplace() {
     if (actionBtn) {
       if (actionBtn.dataset.mcpAction === 'tools') {
         loadMcpMarketplaceTools(actionBtn.dataset.installedId).catch(err => _marketplaceMsg(err.message, true));
+      } else if (actionBtn.dataset.mcpAction === 'configure') {
+        configureMcpMarketplaceInstalled(actionBtn.dataset.installedId).catch(err => _marketplaceMsg(err.message, true));
       } else {
         runMcpMarketplaceAction(actionBtn.dataset.installedId, actionBtn.dataset.mcpAction).catch(err => _marketplaceMsg(err.message, true));
       }
@@ -2360,6 +2406,65 @@ function refreshAll() {
   loadHostBridgeStatus();
 }
 
+function initMcpMarketplaceModal() {
+  const modal = el('mcp-marketplace-modal');
+  if (!modal || modal.dataset.modalReady === '1') return;
+  modal.dataset.modalReady = '1';
+  el('close-mcp-marketplace-modal')?.addEventListener('click', () => closeMcpMarketplace());
+  modal.addEventListener('click', event => {
+    if (event.target === modal) closeMcpMarketplace();
+  });
+}
+
+function _ensureMcpMarketplaceModal() {
+  const modal = el('mcp-marketplace-modal');
+  if (!modal) return null;
+  initMcpMarketplaceModal();
+  initMcpMarketplace();
+  _wireMcpMarketplaceDrag(modal);
+  if (!Modals.isRegistered('mcp-marketplace-modal')) {
+    Modals.register('mcp-marketplace-modal', {
+      railBtnId: 'rail-mcp-marketplace',
+      closeFn: () => _doCloseMcpMarketplace(),
+      restoreFn: () => {
+        loadMcpMarketplaceEntries().catch(err => _marketplaceMsg(err.message, true));
+        loadMcpMarketplaceInstalled().catch(err => _marketplaceMsg(err.message, true));
+      },
+    });
+  }
+  return modal;
+}
+
+function _doCloseMcpMarketplace() {
+  const modal = el('mcp-marketplace-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('modal-minimized');
+  modal.style.display = '';
+}
+
+export function openMcpMarketplace() {
+  _initData();
+  const modal = _ensureMcpMarketplaceModal();
+  if (!modal) return;
+  if (Modals.isMinimized('mcp-marketplace-modal')) {
+    Modals.restore('mcp-marketplace-modal');
+    return;
+  }
+  modal.style.display = '';
+  modal.classList.remove('hidden');
+  loadMcpMarketplaceEntries().catch(err => _marketplaceMsg(err.message, true));
+  loadMcpMarketplaceInstalled().catch(err => _marketplaceMsg(err.message, true));
+}
+
+export function closeMcpMarketplace() {
+  if (Modals.isRegistered('mcp-marketplace-modal')) {
+    Modals.close('mcp-marketplace-modal');
+    return;
+  }
+  _doCloseMcpMarketplace();
+}
+
 /* ═══════════════════════════════════════════
    PUBLIC API
    ═══════════════════════════════════════════ */
@@ -2377,5 +2482,5 @@ export function close() {
   settingsModule.close();
 }
 
-const adminModule = { open, close, _initData, get _initialized() { return initialized; } };
+const adminModule = { open, close, openMcpMarketplace, closeMcpMarketplace, _initData, get _initialized() { return initialized; } };
 export default adminModule;

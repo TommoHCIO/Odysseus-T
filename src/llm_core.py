@@ -396,12 +396,21 @@ def _format_upstream_error(status: int, body: bytes | str, url: str) -> str:
 # Models that require max_completion_tokens instead of max_tokens
 _MAX_COMPLETION_TOKENS_MODELS = {"o1", "o3", "o4", "gpt-4.5", "gpt-5"}
 
+
 def _uses_max_completion_tokens(model: str) -> bool:
     """Check if a model requires max_completion_tokens instead of max_tokens."""
     if not model:
         return False
     m = model.lower()
     return any(m.startswith(p) or f"/{p}" in m for p in _MAX_COMPLETION_TOKENS_MODELS)
+
+
+def _restricts_temperature(model: str) -> bool:
+    """Check if a model rejects explicit temperature settings."""
+    if not model:
+        return False
+    m = model.lower()
+    return _uses_max_completion_tokens(m)
 
 # Models that support structured thinking — may output </think> without opening tag
 _THINKING_MODEL_PATTERNS = ("qwen3", "qwq", "deepseek-r1", "deepseek-reasoner", "minimax", "m2-reap")

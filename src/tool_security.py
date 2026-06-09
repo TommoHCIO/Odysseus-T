@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional, Set
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,9 @@ def is_public_blocked_tool(tool_name: Optional[str]) -> bool:
 
 
 def owner_is_admin_or_single_user(owner: Optional[str]) -> bool:
-    """Return True for admins, or when auth is not configured yet."""
+    """Return True for admins, auth-disabled local mode, or unconfigured auth."""
+    if os.environ.get("AUTH_ENABLED", "true").strip().lower() in {"0", "false", "no", "off"}:
+        return True
     try:
         from core.auth import AuthManager
 

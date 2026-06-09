@@ -51,3 +51,14 @@ def test_genuine_keywords_still_force_include():
     assert "reply_to_email" in ti.get_tools_for_query("reply to this email")
     assert "edit_document" in ti.get_tools_for_query("edit the document")
     assert "serve_model" in ti.get_tools_for_query("serve the model")
+
+
+def test_mcp_and_host_access_keywords_force_manage_mcp():
+    ti = _index()
+    for q in (
+        "inspect the connected MCP servers and tools",
+        "verify whether host_access is connected",
+        "list the host bridge tools",
+    ):
+        assert "manage_mcp" in ti.get_tools_for_query(q), q
+

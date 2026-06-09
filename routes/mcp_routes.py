@@ -101,12 +101,14 @@ def setup_mcp_routes(mcp_manager: McpManager):
     def _installed_payload(installed):
         status = mcp_manager.get_server_status(installed.mcp_server_id)
         effective_status = status.get("status") or installed.status
+        entry = get_catalog_entry(installed.catalog_entry_id)
         return {
             **installed.to_dict(),
             "runtime_status": status,
             "status": effective_status,
             "status_color": status_color(effective_status),
             "tool_count": status.get("tool_count", 0),
+            "config_fields": entry.config_fields if entry else [],
         }
 
     @router.get("/host-bridge/status")
@@ -148,7 +150,7 @@ def setup_mcp_routes(mcp_manager: McpManager):
     @router.post("/marketplace/catalogs/refresh")
     def marketplace_refresh_catalogs(request: Request):
         require_admin(request)
-        return refresh_catalog_cache(default_catalog_sources())
+        return refresh_catalog_cache(default_catalog_sources(include_external=True))
 
     @router.get("/marketplace/entries")
     def marketplace_entries(request: Request):

@@ -84,6 +84,12 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         token = request.cookies.get(SESSION_COOKIE)
         return auth_manager.get_username_for_token(token)
 
+    def _is_admin_or_auth_disabled(request: Request) -> bool:
+        if os.getenv("AUTH_ENABLED", "true").strip().lower() in {"0", "false", "no", "off"}:
+            return True
+        user = _get_current_user(request)
+        return bool(user and auth_manager.is_admin(user))
+
     @router.post("/setup")
     async def first_run_setup(body: SetupRequest, request: Request):
         """Create initial admin account. Only works if no accounts exist."""
@@ -414,8 +420,7 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
     @router.post("/settings")
     async def set_settings(request: Request):
         """Admin only: update app settings."""
-        user = _get_current_user(request)
-        if not user or not auth_manager.is_admin(user):
+        if not _is_admin_or_auth_disabled(request):
             raise HTTPException(403, "Admin only")
         body = await request.json()
         current = _load_settings()

@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
+from src.mcp_marketplace_registry import fetch_registry_catalog
+
 SUPPORTED_RUNTIMES = {"npm", "python_uv", "docker", "sse"}
 MARKETPLACE_DIR = Path(os.environ.get("ODYSSEUS_MCP_MARKETPLACE_DIR", "data/mcp_marketplace"))
 CATALOG_CACHE_PATH = MARKETPLACE_DIR / "catalog_cache.json"
@@ -20,9 +22,10 @@ class CatalogSource:
     name: str
     priority: int
     path: str
+    type: str = "file"
 
     def to_public_dict(self) -> Dict[str, Any]:
-        return {"id": self.id, "name": self.name, "priority": self.priority, "path": self.path}
+        return {"id": self.id, "name": self.name, "priority": self.priority, "path": self.path, "type": self.type}
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,9 @@ class CatalogEntry:
     source_priority: int
     checksum: str | None = None
     tool_hints: List[Dict[str, Any]] = field(default_factory=list)
+    categories: List[str] = field(default_factory=list)
+    tags: List[str] = field(default_factory=list)
+    package_type: str | None = None
 
     @classmethod
     def from_raw(cls, raw: Dict[str, Any], source_id: str, source_priority: int) -> "CatalogEntry":
@@ -72,6 +78,9 @@ class CatalogEntry:
             source_priority=source_priority,
             checksum=str(raw["checksum"]) if raw.get("checksum") else None,
             tool_hints=list(raw.get("tool_hints") or []),
+            categories=[str(category) for category in (raw.get("categories") or [])],
+            tags=[str(tag) for tag in (raw.get("tags") or [])],
+            package_type=str(raw["package_type"]) if raw.get("package_type") else None,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -82,12 +91,21 @@ def _marketplace_dir() -> Path:
     return Path(os.environ.get("ODYSSEUS_MCP_MARKETPLACE_DIR", str(MARKETPLACE_DIR)))
 
 
-def default_catalog_sources() -> List[CatalogSource]:
+def default_catalog_sources(include_external: bool = False) -> List[CatalogSource]:
     base = _marketplace_dir()
-    return [
+    sources = [
         CatalogSource(id="odysseus-curated", name="Odysseus Curated", priority=100, path=str(base / "curated_catalog.json")),
         CatalogSource(id="odysseus-community-curated", name="Odysseus Community Curated", priority=80, path=str(base / "community_curated_catalog.json")),
     ]
+    if include_external:
+        sources.append(CatalogSource(
+            id="official-mcp-registry",
+            name="Official MCP Registry",
+            priority=60,
+            path="https://registry.modelcontextprotocol.io/v0.1/servers",
+            type="registry",
+        ))
+    return sources
 
 
 def _seed_entries_for_source(source_id: str) -> List[Dict[str, Any]]:
@@ -171,10 +189,23 @@ def ensure_seed_catalog(path: Path | None = None, source_id: str = "odysseus-cur
 
 
 def _load_source_entries(source: CatalogSource) -> Tuple[List[CatalogEntry], List[str]]:
+    errors: List[str] = []
+    if source.type == "registry":
+        try:
+            raw_entries = fetch_registry_catalog(source.path, source_id=source.id, source_priority=source.priority)
+        except Exception as exc:
+            return [], [f"{source.id}: {exc}"]
+        entries = []
+        for raw_entry in raw_entries:
+            try:
+                entries.append(CatalogEntry.from_raw(raw_entry, source.id, source.priority))
+            except ValueError as exc:
+                errors.append(f"{source.id}/{raw_entry.get('id', 'unknown')}: {exc}")
+        return entries, errors
+
     path = Path(source.path)
     if source.id in {"odysseus-curated", "odysseus-community-curated"}:
         ensure_seed_catalog(path, source.id)
-    errors: List[str] = []
     try:
         raw_catalog = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:

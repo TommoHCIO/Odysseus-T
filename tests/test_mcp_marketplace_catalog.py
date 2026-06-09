@@ -105,6 +105,25 @@ def test_catalog_entry_rejects_unsupported_runtime():
         raise AssertionError("unsupported runtime should fail")
 
 
+def test_default_catalog_sources_are_local_by_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("ODYSSEUS_MCP_MARKETPLACE_DIR", str(tmp_path))
+
+    sources = default_catalog_sources()
+
+    assert {source.id for source in sources} >= {"odysseus-curated", "odysseus-community-curated"}
+    assert "official-mcp-registry" not in {source.id for source in sources}
+
+
+def test_default_catalog_sources_can_include_external_registry(monkeypatch, tmp_path):
+    monkeypatch.setenv("ODYSSEUS_MCP_MARKETPLACE_DIR", str(tmp_path))
+
+    sources = default_catalog_sources(include_external=True)
+    registry = [source for source in sources if source.id == "official-mcp-registry"][0]
+
+    assert registry.type == "registry"
+    assert registry.path == "https://registry.modelcontextprotocol.io/v0.1/servers"
+
+
 def test_default_catalog_sources_include_multiple_curated_libraries(monkeypatch, tmp_path):
     monkeypatch.setenv("ODYSSEUS_MCP_MARKETPLACE_DIR", str(tmp_path))
 

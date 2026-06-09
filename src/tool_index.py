@@ -405,6 +405,12 @@ class ToolIndex:
                    "what models do i have", "is it downloaded",
                    "do i have", "already downloaded", "on disk"}):
             {"list_cached_models", "search_hf_models"},
+        # MCP/server management and inspection intent — include the generic
+        # MCP management tool so Agent mode can see runtime-only servers such
+        # as host_access and list their tools instead of guessing.
+        frozenset({"mcp", "mcp server", "mcp servers", "mcp tools",
+                   "host_access", "host bridge", "host access", "connected tools"}):
+            {"manage_mcp"},
         # Tool on/off / panel open intent — user says "turn off shell",
         # "disable search", "open library", "show gallery", etc.
         frozenset({"turn off", "turn on", "disable", "enable",

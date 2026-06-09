@@ -65,6 +65,23 @@ def test_marketplace_refresh_and_entries(monkeypatch, tmp_path):
     assert any(item["id"] == "filesystem" for item in entries.json())
 
 
+def test_marketplace_refresh_uses_external_registry_sources(monkeypatch):
+    called = {}
+
+    def fake_default_sources(include_external=False):
+        called["include_external"] = include_external
+        return []
+
+    monkeypatch.setattr(mcp_routes, "default_catalog_sources", fake_default_sources)
+    monkeypatch.setattr(mcp_routes, "refresh_catalog_cache", lambda sources: {"entries": [], "sources": [], "errors": []})
+    client = make_client(monkeypatch)
+
+    response = client.post("/api/mcp/marketplace/catalogs/refresh")
+
+    assert response.status_code == 200
+    assert called["include_external"] is True
+
+
 def test_marketplace_install_creates_installed_entry_and_connects(monkeypatch, tmp_path):
     monkeypatch.setenv("ODYSSEUS_MCP_MARKETPLACE_DIR", str(tmp_path))
     manager = FakeMcpManager()
@@ -84,7 +101,21 @@ def test_marketplace_install_creates_installed_entry_and_connects(monkeypatch, t
     assert installed.json()[0]["status_color"] == "green"
 
 
-def test_marketplace_disconnect_and_connect_controls(monkeypatch, tmp_path):
+def test_marketplace_installed_payload_includes_config_schema(monkeypatch, tmp_path):
+    monkeypatch.setenv("ODYSSEUS_MCP_MARKETPLACE_DIR", str(tmp_path))
+    manager = FakeMcpManager()
+    client = make_client(monkeypatch, manager)
+    client.post("/api/mcp/marketplace/catalogs/refresh")
+    client.post("/api/mcp/marketplace/install/filesystem", json={"config": {"root": str(tmp_path)}})
+
+    response = client.get("/api/mcp/marketplace/installed")
+
+    assert response.status_code == 200
+    server = response.json()[0]
+    assert server["config"] == {"root": str(tmp_path)}
+    assert server["config_fields"] == [{"name": "root", "label": "Allowed root", "type": "path", "required": True}]
+
+
     monkeypatch.setenv("ODYSSEUS_MCP_MARKETPLACE_DIR", str(tmp_path))
     manager = FakeMcpManager()
     client = make_client(monkeypatch, manager)

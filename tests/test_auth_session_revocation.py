@@ -81,14 +81,30 @@ def test_password_change_allows_new_password_and_blocks_old_password(tmp_path):
 
 
 def _change_password_endpoint(auth_manager):
+    routes_pkg = importlib.import_module("routes")
+    previous_auth_routes = sys.modules.get("routes.auth_routes")
+    previous_routes_attr = getattr(routes_pkg, "auth_routes", None)
+    had_routes_attr = hasattr(routes_pkg, "auth_routes")
     sys.modules.pop("routes.auth_routes", None)
+    if had_routes_attr:
+        delattr(routes_pkg, "auth_routes")
     _real_core_package()
-    from routes.auth_routes import ChangePasswordRequest, setup_auth_routes
+    auth_routes = importlib.import_module("routes.auth_routes")
+    ChangePasswordRequest = auth_routes.ChangePasswordRequest
+    setup_auth_routes = auth_routes.setup_auth_routes
+    if previous_auth_routes is None:
+        sys.modules.pop("routes.auth_routes", None)
+    else:
+        sys.modules["routes.auth_routes"] = previous_auth_routes
+    if had_routes_attr:
+        setattr(routes_pkg, "auth_routes", previous_routes_attr)
+    elif hasattr(routes_pkg, "auth_routes"):
+        delattr(routes_pkg, "auth_routes")
 
     router = setup_auth_routes(auth_manager)
     for route in router.routes:
         if getattr(route, "path", None) == "/api/auth/change-password":
-            return route.endpoint, ChangePasswordRequest
+            return route.endpoint, ChangePasswordRequest, auth_routes
     raise AssertionError("change-password route not found")
 
 
@@ -96,9 +112,10 @@ def test_change_password_route_revokes_other_sessions_after_success(monkeypatch)
     auth = MagicMock()
     auth.get_username_for_token.return_value = "alice"
     auth.change_password.return_value = True
-    endpoint, ChangePasswordRequest = _change_password_endpoint(auth)
+    endpoint, ChangePasswordRequest, auth_routes = _change_password_endpoint(auth)
     monkeypatch.setattr(
-        "routes.auth_routes.asyncio.to_thread",
+        auth_routes.asyncio,
+        "to_thread",
         lambda fn, *args, **kwargs: _immediate_to_thread(fn, *args, **kwargs),
     )
     request = SimpleNamespace(cookies={"odysseus_session": "current-token"})
@@ -115,9 +132,10 @@ def test_change_password_route_wrong_password_does_not_revoke(monkeypatch):
     auth = MagicMock()
     auth.get_username_for_token.return_value = "alice"
     auth.change_password.return_value = False
-    endpoint, ChangePasswordRequest = _change_password_endpoint(auth)
+    endpoint, ChangePasswordRequest, auth_routes = _change_password_endpoint(auth)
     monkeypatch.setattr(
-        "routes.auth_routes.asyncio.to_thread",
+        auth_routes.asyncio,
+        "to_thread",
         lambda fn, *args, **kwargs: _immediate_to_thread(fn, *args, **kwargs),
     )
     request = SimpleNamespace(cookies={"odysseus_session": "current-token"})

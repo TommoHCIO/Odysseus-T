@@ -884,10 +884,9 @@ function renderSkillsList() {
     });
   }
 
-  // Background-load the visible skills' SKILL.md so expanding any of them is
-  // instant (no first-time async fetch → no jump). Deferred so it never
-  // competes with the render/cascade paint.
-  setTimeout(_preloadVisibleMarkdown, 0);
+  // Fetch SKILL.md lazily when a card is expanded. Eagerly preloading every
+  // visible skill can saturate the browser's per-origin request pool and delay
+  // chat_stream/model checks while the Skills panel is open.
 }
 
 // ---- Card expand / edit / actions ----

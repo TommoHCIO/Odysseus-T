@@ -47,6 +47,12 @@ class _DBStub(types.ModuleType):
 _db = _DBStub("core.database")
 _db.get_db_session = _get_db_session
 _db.ApiToken = _ApiToken
+_existing_core_database = sys.modules.get("core.database")
+_PREV_CORE_DATABASE = (
+    _existing_core_database
+    if getattr(_existing_core_database, "__file__", None) and hasattr(_existing_core_database, "Base")
+    else None
+)
 sys.modules["core.database"] = _db  # overwrite any minimal stub from a sibling test
 
 for _name, _attrs in {
@@ -66,10 +72,16 @@ import companion.routes as companion_routes  # noqa: E402
 from companion.routes import mint_pairing_token, setup_companion_routes  # noqa: E402
 from core.middleware import require_admin  # noqa: E402
 
+if _PREV_CORE_DATABASE is None:
+    sys.modules.pop("core.database", None)
+else:
+    sys.modules["core.database"] = _PREV_CORE_DATABASE
+
 
 # --- token minting: shown once, hashed at rest -----------------------------
 
-def test_mint_token_returns_raw_once_and_stores_only_a_hash():
+def test_mint_token_returns_raw_once_and_stores_only_a_hash(monkeypatch):
+    monkeypatch.setitem(sys.modules, "core.database", _db)
     token_id, raw = P.mint_token("alice")
     assert raw.startswith("ody_")
     # The persisted row stores a bcrypt hash + prefix, never the plaintext.

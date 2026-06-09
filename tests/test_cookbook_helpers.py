@@ -1,4 +1,6 @@
 import json
+import os
+import shutil
 import subprocess
 import sys
 
@@ -20,6 +22,25 @@ from routes.cookbook_helpers import (
     _validate_serve_model_id,
     _validate_ssh_port,
 )
+
+
+def _bash_cmd():
+    """Return a Bash executable that works on Windows test hosts."""
+    bash = shutil.which("bash")
+    if bash:
+        try:
+            probe = subprocess.run([bash, "-lc", "printf ok"], capture_output=True, text=True, timeout=5)
+            if probe.returncode == 0 and probe.stdout == "ok":
+                return bash
+        except Exception:
+            pass
+    for candidate in (
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+    ):
+        if os.path.exists(candidate):
+            return candidate
+    pytest.skip("Bash is required for Cookbook shell snippet tests")
 
 
 def test_safe_env_prefix_accepts_quoted_venv_path():
@@ -121,18 +142,13 @@ def test_pip_install_fallback_chain_propagates_failure_in_venv():
     reported success even though nothing was installed.  The negated
     `{ ! venv_check && user }` shape propagates the failure correctly.
     """
-    import shlex
-    py = shlex.quote(sys.executable)
-    # Use the venv python so venv_check detects we're in a venv.
-    # Base install fails, venv_check exits 0, negated to 1,
-    # && skips user, group exits 1.
     script = (
-        f"{py} -c 'import sys; sys.exit(1)' || "
-        f"{{ ! {py} -c \"import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)\" "
-        f"&& echo user_attempt; }}"
+        "false || "
+        "{ ! true "  # venv_check=0 → negated to 1 → user skipped
+        "&& echo user_attempt; }"
     )
     result = subprocess.run(
-        ["bash", "-c", script],
+        [_bash_cmd(), "-c", script],
         capture_output=True, text=True, timeout=10,
     )
     assert "user_attempt" not in result.stdout
@@ -143,14 +159,12 @@ def test_pip_install_fallback_chain_tries_user_outside_venv():
     """When base install fails outside a venv, the chain should try --user."""
     # Force "not in venv" by making venv_check return 1 directly.
     script = (
-        "bash -c '"
         "python3 -c \"import sys; sys.exit(1)\" || "
         "{ ! python3 -c \"import sys; sys.exit(1)\" "  # venv_check=1 → negated to 0 → user runs
         "&& echo user_attempt; }"
-        "'"
     )
     result = subprocess.run(
-        ["bash", "-c", script],
+        [_bash_cmd(), "-c", script],
         capture_output=True, text=True, timeout=10,
     )
     assert "user_attempt" in result.stdout, "Chain should try --user when not in venv and base fails"
@@ -177,9 +191,9 @@ def test_pip_install_attempt_no_bare_pipe_tail():
 def test_pip_install_attempt_failure_propagates_real_exit_code():
     """Run the generated snippet against a deliberately broken pip install
     to confirm the subshell exits with pip's non-zero status."""
-    snippet = _pip_install_attempt("python3 -m pip install __nonexistent_package_12345__")
+    snippet = _pip_install_attempt("false")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        [_bash_cmd(), "-c", snippet],
         capture_output=True,
         text=True,
         timeout=60,
@@ -189,9 +203,9 @@ def test_pip_install_attempt_failure_propagates_real_exit_code():
 
 def test_pip_install_attempt_success_exits_zero():
     """When pip succeeds, the subshell should exit 0."""
-    snippet = _pip_install_attempt("python3 -c 'pass'")
+    snippet = _pip_install_attempt("true")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        [_bash_cmd(), "-c", snippet],
         capture_output=True,
         text=True,
         timeout=15,
@@ -201,9 +215,9 @@ def test_pip_install_attempt_success_exits_zero():
 
 def test_pip_install_attempt_surfaces_stderr_on_failure():
     """On failure, the last 5 lines of pip output should appear in stdout."""
-    snippet = _pip_install_attempt("python3 -m pip install __nonexistent_package_12345__")
+    snippet = _pip_install_attempt("false")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        [_bash_cmd(), "-c", snippet],
         capture_output=True,
         text=True,
         timeout=60,

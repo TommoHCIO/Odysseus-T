@@ -11,7 +11,7 @@ from core.session_manager import SessionManager
 from core.models import ChatMessage
 from src.request_models import SessionResponse
 from core.database import Session as DbSession, SessionLocal, Document, GalleryImage
-from src.auth_helpers import get_current_user, effective_user
+from src.auth_helpers import get_current_user, effective_user, require_user
 
 
 def _sanitize_export_filename(name: str) -> str:
@@ -25,13 +25,16 @@ def _verify_session_owner(request: Request, session_id: str):
     """Verify the current user owns the session. Raises 404 if not."""
     user = effective_user(request)
     if not user:
-        raise HTTPException(403, "Authentication required")
+        require_user(request)
     db = SessionLocal()
     try:
         row = db.query(DbSession.owner).filter(DbSession.id == session_id).first()
         if not row:
             raise HTTPException(404, f"Session {session_id} not found")
-        if row.owner != user:
+        if user:
+            if row.owner != user:
+                raise HTTPException(404, f"Session {session_id} not found")
+        elif row.owner is not None:
             raise HTTPException(404, f"Session {session_id} not found")
     finally:
         db.close()

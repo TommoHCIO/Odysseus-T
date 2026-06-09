@@ -55,6 +55,7 @@ def _load_mcp_disabled_map() -> Dict[str, set]:
         db.close()
     return disabled_map
 
+
 # System prompt that tells the LLM about available tools.
 # Always injected — the LLM decides whether to use them.
 _AGENT_PREAMBLE = """\
@@ -488,6 +489,24 @@ _ADMIN_KEYWORDS = [
     "document", "documents", "doc", "docs", "library", "tidy",
     "note", "notes", "todo", "todos", "reminder", "reminders",
 ]
+
+
+def _filter_mcp_schemas_for_relevant_tools(mcp_schemas: List[Dict], relevant_tools: Optional[Set[str]], query: str = "") -> List[Dict]:
+    """Keep MCP schemas reachable when the generic manage_mcp tool is selected."""
+    if not relevant_tools:
+        return mcp_schemas
+    if "manage_mcp" not in relevant_tools:
+        return [
+            s for s in mcp_schemas
+            if s.get("function", {}).get("name") in relevant_tools
+        ]
+    query_lower = (query or "").lower()
+    if any(kw in query_lower for kw in ("host_access", "host access", "host bridge")):
+        return [
+            s for s in mcp_schemas
+            if s.get("function", {}).get("name", "").startswith("mcp__host_access__")
+        ]
+    return mcp_schemas
 
 def _detect_admin_intent(messages: List[Dict]) -> bool:
     """Check if the last user message suggests admin/management tool usage."""
@@ -1553,10 +1572,7 @@ async def stream_agent_loop(
                     s for s in FUNCTION_TOOL_SCHEMAS
                     if s.get("function", {}).get("name") in _relevant_tools
                 ]
-                _mcp_filtered = [
-                    s for s in mcp_schemas
-                    if s.get("function", {}).get("name") in _relevant_tools
-                ]
+                _mcp_filtered = _filter_mcp_schemas_for_relevant_tools(mcp_schemas, _relevant_tools, _last_user)
                 all_tool_schemas = base_schemas + _mcp_filtered
             else:
                 base_schemas = FUNCTION_TOOL_SCHEMAS if _needs_admin else [

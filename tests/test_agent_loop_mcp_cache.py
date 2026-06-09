@@ -42,3 +42,33 @@ def test_system_prompt_cache_invalidates_when_mcp_generation_changes():
 
     assert "mcp__host_access__host_health" in second_messages[0]["content"]
     assert "mcp__old__tool" not in second_messages[0]["content"]
+
+
+def test_mcp_tool_filter_keeps_host_access_tools_for_manage_mcp_query():
+    schemas = [
+        {
+            "type": "function",
+            "function": {
+                "name": "mcp__host_access__host_health",
+                "description": "Host health check",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "mcp__other__tool",
+                "description": "Other tool",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
+    relevant_tools = {"manage_mcp"}
+
+    filtered = agent_loop._filter_mcp_schemas_for_relevant_tools(
+        schemas,
+        relevant_tools,
+        "verify host_access and list host bridge tools",
+    )
+
+    assert [s["function"]["name"] for s in filtered] == ["mcp__host_access__host_health"]

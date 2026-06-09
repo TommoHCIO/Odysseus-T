@@ -30,7 +30,7 @@ def _run_markdown_case(markdown: str) -> str:
         };
         globalThis.MutationObserver = class { observe() {} };
 
-        let source = fs.readFileSync('./static/js/markdown.js', 'utf8');
+        let source = fs.readFileSync('./static/js/markdown.js', 'utf8').replace(/\\r\\n/g, '\\n');
         source = source.replace(
           "import uiModule from './ui.js';\\n\\nvar escapeHtml = uiModule.esc;",
           `var escapeHtml = (value) => String(value ?? '')

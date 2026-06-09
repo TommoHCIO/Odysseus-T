@@ -28,21 +28,29 @@ _STUBS = {
     "core.models": {"ChatMessage": MagicMock()},
     "src.request_models": {"SessionResponse": MagicMock()},
 }
+_INSERTED_STUBS = []
 for _name, _attrs in _STUBS.items():
     if _name not in sys.modules:
         _m = types.ModuleType(_name)
         for _k, _v in _attrs.items():
             setattr(_m, _k, _v)
         sys.modules[_name] = _m
+        _INSERTED_STUBS.append(_name)
 
 from fastapi import HTTPException  # noqa: E402
 
 from src.auth_helpers import effective_user  # noqa: E402
 import routes.session_routes as SR  # noqa: E402
 
+for _name in _INSERTED_STUBS:
+    sys.modules.pop(_name, None)
+
 
 def _req(**state):
-    return SimpleNamespace(state=SimpleNamespace(**state))
+    auth_manager = SimpleNamespace(is_configured=True)
+    app = SimpleNamespace(state=SimpleNamespace(auth_manager=auth_manager))
+    client = SimpleNamespace(host="203.0.113.10")
+    return SimpleNamespace(state=SimpleNamespace(**state), app=app, client=client)
 
 
 # --- effective_user: who a request is attributed to ------------------------
@@ -110,4 +118,12 @@ def test_unauthenticated_caller_rejected(monkeypatch):
     req = _req(api_token=False, current_user=None)
     with pytest.raises(HTTPException) as exc:
         SR._verify_session_owner(req, "sid")
-    assert exc.value.status_code == 403
+    assert exc.value.status_code == 401
+
+
+def test_auth_disabled_allows_anonymous_owned_session(monkeypatch):
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.setattr(SR, "SessionLocal", _session_local_returning(None))
+    req = _req(api_token=False, current_user=None)
+
+    SR._verify_session_owner(req, "sid")
