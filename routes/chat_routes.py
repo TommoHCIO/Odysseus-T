@@ -313,6 +313,8 @@ def setup_chat_routes(
         search_context = form_data.get("search_context")  # pre-fetched web search results (compare mode)
         compare_mode = str(form_data.get("compare_mode", "")).lower() == "true"
         incognito = str(form_data.get("incognito", "")).lower() == "true"
+        council_mode = str(form_data.get("council_mode", "")).lower() == "true"
+        council_tool_scope = str(form_data.get("council_tool_scope", "")).lower()
         chat_mode = str(form_data.get("mode", "")).lower()  # 'chat' or 'agent'
         # Did the USER explicitly pick agent mode? (vs. us auto-escalating
         # below). Skill extraction should only learn from real agent sessions,
@@ -326,12 +328,12 @@ def setup_chat_routes(
         # its way through a plain chat request (and fail, especially with the
         # shell disabled).
         auto_escalated = False
-        if chat_mode == "chat" and isinstance(message, str) and _message_needs_tools(message):
+        if chat_mode == "chat" and not council_mode and isinstance(message, str) and _message_needs_tools(message):
             chat_mode = "agent"
             auto_escalated = True
             logger.info("chat→agent auto-escalation: message matched tool-intent pattern")
         active_doc_id = form_data.get("active_doc_id", "").strip()
-        logger.info(f"[doc-inject] chat_mode={chat_mode}, active_doc_id={active_doc_id!r}")
+        logger.info(f"[doc-inject] chat_mode={chat_mode}, council_mode={council_mode}, council_tool_scope={council_tool_scope!r}, active_doc_id={active_doc_id!r}")
 
         try:
             # Attachment-only sends: skip the message-required check when the
@@ -520,6 +522,39 @@ def setup_chat_routes(
         _global_disabled = get_setting("disabled_tools", [])
         if _global_disabled and isinstance(_global_disabled, list):
             disabled_tools.update(_global_disabled)
+
+        # Council turns may deliberately run in agent mode so participants can
+        # gather evidence, but interim debate turns must not mutate the app,
+        # documents, files, sessions, or the user's long-lived state. Phase 3
+        # uses a separate build scope so the synthesis pass can create a real
+        # app package under the instructed workspace directory.
+        if council_mode and chat_mode == "agent":
+            always_blocked_for_council = {
+                "app_api", "api_call",
+                "pipeline", "serve_model", "stop_served_model", "list_served_models",
+                "builtin_browser", "ui_control",
+                "create_document", "edit_document", "update_document", "suggest_document",
+                "create_session", "list_sessions", "send_to_session", "manage_session",
+                "manage_memory", "manage_skills", "manage_tasks",
+                "manage_calendar", "manage_notes", "manage_research", "trigger_research",
+                "generate_image", "edit_image",
+                "send_email", "reply_to_email", "bulk_email", "delete_email", "archive_email",
+                "mark_email_read", "list_email_accounts", "list_emails", "read_email",
+                "resolve_contact",
+            }
+            if council_tool_scope == "build":
+                disabled_tools.update(always_blocked_for_council)
+                logger.info("[council-tools] build scope enabled: bash/python/read_file/write_file plus research helpers remain available unless globally disabled")
+            else:
+                disabled_tools.update(always_blocked_for_council)
+                disabled_tools.update({"bash", "python", "read_file", "write_file"})
+            if council_tool_scope == "evidence":
+                logger.info("[council-tools] evidence scope enabled: web_search/web_fetch/chat_with_model/ask_teacher remain available unless globally disabled")
+        council_relevant_tools = None
+        if council_mode and chat_mode == "agent" and council_tool_scope == "evidence":
+            council_relevant_tools = {"web_search", "web_fetch", "chat_with_model", "ask_teacher"}
+        elif council_mode and chat_mode == "agent" and council_tool_scope == "build":
+            council_relevant_tools = {"bash", "python", "read_file", "write_file", "web_search", "web_fetch", "chat_with_model", "ask_teacher"}
 
         # Light auto-escalation: the user is in chat mode and just expressed a
         # notes/calendar/email intent. Grant the relevant managers but withhold
@@ -904,6 +939,7 @@ def setup_chat_routes(
                         active_document=active_doc,
                         session_id=session,
                         disabled_tools=disabled_tools if disabled_tools else None,
+                        relevant_tools=council_relevant_tools,
                         owner=_user,
                         fallbacks=_fallback_candidates,
                     ):
@@ -1044,7 +1080,7 @@ def setup_chat_routes(
         if rec is None:
             if agent_runs.is_active(session_id):
                 return {"status": "streaming", "detached": True}
-            raise HTTPException(404, "No active stream for this session")
+            return {"status": "idle", "active": False, "detached": False}
         return rec
 
     # ------------------------------------------------------------------ #

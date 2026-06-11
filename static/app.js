@@ -22,7 +22,7 @@ import censorModule from './js/censor.js';
 import galleryModule from './js/gallery.js';
 import tasksModule from './js/tasks.js';
 import calendarModule from './js/calendar.js';
-import notesModule from './js/notes.js';
+import workspaceModule from './js/workspace.js';
 import adminModule from './js/admin.js';
 import settingsModule from './js/settings.js';
 // Eagerly bind unified minimize/restore behavior across all tool modals.
@@ -549,6 +549,8 @@ function initializeEventListeners() {
         'rename-ai-modal': null,
         'custom-preset-modal': null,
         'memory-modal': null,
+        'obsidian-modal': null,
+        'idea-loop-modal': null,
       };
 
       // Dynamic modals (removed from DOM on close)
@@ -600,7 +602,7 @@ function initializeEventListeners() {
     'memory-modal': null,
     'theme-modal': null,
   };
-  const _dynamicModalIds = ['library-modal', 'archive-modal', 'doclib-modal', 'gallery-modal', 'tasks-modal'];
+  const _dynamicModalIds = ['library-modal', 'archive-modal', 'doclib-modal', 'gallery-modal', 'tasks-modal', 'obsidian-modal', 'idea-loop-modal'];
   function dismissModal(modal) {
     if (!modal || modal.classList.contains('hidden')) return;
     if (modal.id === 'gallery-modal') {
@@ -905,20 +907,17 @@ function initializeEventListeners() {
     });
   }
 
-  // Notes tool button
+  // Obsidian replaces the former Notes slot.
   const toolNotesBtn = el('tool-notes-btn');
   if (toolNotesBtn) {
-    toolNotesBtn.addEventListener('click', () => {
-      if (notesModule) {
-        notesModule.togglePanel();
-      }
-    });
+    toolNotesBtn.addEventListener('click', () => workspaceModule.openObsidian());
   }
-  // Refresh notes due-reminder badge on load and every 5 minutes
-  if (notesModule && notesModule.refreshDueBadge) {
-    notesModule.refreshDueBadge();
-    setInterval(() => notesModule.refreshDueBadge(), 5 * 60 * 1000);
+
+  const toolIdeaLoopBtn = el('tool-idea-loop-btn');
+  if (toolIdeaLoopBtn) {
+    toolIdeaLoopBtn.addEventListener('click', () => workspaceModule.openIdeaLoop());
   }
+  // Notes reminder badge is retired with the Notes slot replacement.
 
   // URL-based panel routing — bookmark /calendar, /notes, /cookbook etc
   // and the matching tool opens automatically on page load.
@@ -983,27 +982,7 @@ function initializeEventListeners() {
     }
   }
   const _routeOpen = {
-    '/notes':    () => {
-      if (!notesModule) return;
-      _collapseSidebarToRail();
-      notesModule.openPanel();
-      // Promote to fullscreen-with-rail-visible. The pane wires up its own
-      // fullscreen toggle (#notes-fullscreen-toggle); piggyback on that
-      // path so the button icon flips and overflow:hidden gets applied
-      // alongside. Retry on rAF in case the panel mounts a tick later.
-      const _go = () => {
-        const btn = document.getElementById('notes-fullscreen-toggle');
-        const pane = document.querySelector('.notes-pane');
-        if (!pane) return false;
-        if (!pane.classList.contains('notes-pane-fullscreen') && btn) btn.click();
-        return true;
-      };
-      if (!_go()) {
-        requestAnimationFrame(_go);
-        setTimeout(_go, 50);
-        setTimeout(_go, 200);
-      }
-    },
+    '/notes':    () => workspaceModule.openObsidian(),
     '/calendar': () => calendarModule && calendarModule.openCalendar(),
     '/cookbook': () => document.getElementById('tool-cookbook-btn')?.click(),
     '/email':    () => {
@@ -1040,6 +1019,9 @@ function initializeEventListeners() {
       setTimeout(_goFullscreen, 200);
     },
     '/memory':   () => document.getElementById('tool-memory-btn')?.click(),
+    '/workspace': () => workspaceModule.openIdeaLoop(),
+    '/obsidian': () => workspaceModule.openObsidian(),
+    '/idea-loop': () => workspaceModule.openIdeaLoop(),
     '/gallery':  () => document.getElementById('tool-gallery-btn')?.click(),
     '/tasks':    () => document.getElementById('tool-tasks-btn')?.click(),
     '/library':  () => sessionModule && sessionModule.openLibrary && sessionModule.openLibrary(),
@@ -1595,9 +1577,53 @@ function initializeEventListeners() {
   (function initModeToggle() {
     const agentBtn = el('mode-agent-btn');
     const chatBtn = el('mode-chat-btn');
-    if (!agentBtn || !chatBtn) return;
+    const councilBtn = el('mode-council-btn');
+    if (!agentBtn || !chatBtn || !councilBtn) return;
     const state = loadToggleState();
     let currentMode = state.mode || 'chat';
+
+    async function startCouncilFromModelSelector(picked) {
+      if (!picked || picked.length < 2) {
+        uiModule.showToast('Choose at least two Council agents');
+        return false;
+      }
+      groupModule.setActive(true);
+      _syncGroupIndicator(true);
+      const chatBox = document.getElementById('chat-history');
+      if (chatBox) {
+        chatBox.querySelectorAll('.tool-splash').forEach(s => s.remove());
+        if (chatModule && chatModule.hideWelcomeScreen) chatModule.hideWelcomeScreen();
+      }
+      const sid = sessionModule.getCurrentSessionId() || 'council-' + Date.now();
+      await groupModule.startGroup(picked, sid);
+      const mpw = el('model-picker-wrap');
+      if (mpw) mpw.style.display = 'none';
+      modelsModule.setCouncilSelectionMode(false);
+      uiModule.showToast(`Council ready — ${picked.length} agents`);
+      return true;
+    }
+
+    function hasActiveCouncilGroup() {
+      return Boolean(
+        groupModule &&
+        groupModule.isActive &&
+        groupModule.isActive() &&
+        (!groupModule.getModelCount || groupModule.getModelCount() > 0)
+      );
+    }
+
+    function ensureCouncilReady(options = {}) {
+      if (options.forceNew && groupModule && groupModule.isActive()) {
+        _syncGroupIndicator(false);
+        groupModule.stopGroup();
+      }
+      if (!options.forceNew && hasActiveCouncilGroup()) return true;
+      const mpw = el('model-picker-wrap');
+      if (mpw) mpw.style.display = '';
+      modelsModule.setCouncilSelectionMode(true, startCouncilFromModelSelector);
+      if (!options.silent) uiModule.showToast('Choose Council agents from the model list');
+      return true;
+    }
 
     function setMode(mode) {
       currentMode = mode;
@@ -1606,21 +1632,38 @@ function initializeEventListeners() {
       saveToggleState(st);
       agentBtn.classList.toggle('active', mode === 'agent');
       chatBtn.classList.toggle('active', mode === 'chat');
+      councilBtn.classList.toggle('active', mode === 'council');
       agentBtn.setAttribute('aria-pressed', String(mode === 'agent'));
       chatBtn.setAttribute('aria-pressed', String(mode === 'chat'));
-      // Slide the pill to the active button
+      councilBtn.setAttribute('aria-pressed', String(mode === 'council'));
       const toggle = agentBtn.closest('.mode-toggle');
-      if (toggle) toggle.classList.toggle('mode-chat', mode === 'chat');
-      // Delay tool glow-up for a staggered effect
-      setTimeout(() => applyModeToToggles(mode), 500);
+      if (toggle) {
+        toggle.classList.toggle('mode-chat', mode === 'chat');
+        toggle.classList.toggle('mode-council', mode === 'council');
+      }
+      document.body.classList.toggle('council-mode-active', mode === 'council');
+      if (mode !== 'council') {
+        modelsModule.setCouncilSelectionMode(false);
+      } else if (!hasActiveCouncilGroup()) {
+        ensureCouncilReady({ silent: true });
+      }
+      if (mode !== 'council' && groupModule && groupModule.isActive()) {
+        _syncGroupIndicator(false);
+        groupModule.stopGroup();
+      }
+      setTimeout(() => applyModeToToggles(mode === 'council' ? 'chat' : mode), 500);
     }
     agentBtn.addEventListener('click', () => {
-      // Agent mode turns off research if active
       const resChk = el('research-toggle');
       if (resChk && resChk.checked) _syncResearchIndicator(false);
       setMode('agent');
     });
     chatBtn.addEventListener('click', () => setMode('chat'));
+    councilBtn.addEventListener('click', () => {
+      setMode('council');
+      ensureCouncilReady({ forceNew: true });
+    });
+    if (currentMode === 'council') currentMode = 'chat';
     setMode(currentMode);
   })();
 
@@ -3422,6 +3465,7 @@ function startOdysseusApp() {
   if (compareModule) {
     compareModule.init(API_BASE);
   }
+  workspaceModule.init();
   researchPanelModule.init(API_BASE, markdownModule, sessionModule);
   // Initialize document editor module
   if (documentModule) {
@@ -3455,6 +3499,7 @@ function startOdysseusApp() {
     'rail-tasks':     'tool-tasks-btn',
     'rail-calendar':  'tool-calendar-btn',
     'rail-notes':     'tool-notes-btn',
+    'rail-idea-loop': 'tool-idea-loop-btn',
     'rail-memory':    'tool-memory-btn',
     'rail-theme':     'tool-theme-btn',
     'rail-email':     'email-section-title',

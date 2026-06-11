@@ -684,6 +684,10 @@ logger.info("Webhook & API token routes initialized")
 from routes.note_routes import setup_note_routes
 app.include_router(setup_note_routes(task_scheduler))
 
+# Unified Workspace
+from routes.workspace_routes import setup_workspace_routes
+app.include_router(setup_workspace_routes())
+
 # Email
 from routes.email_routes import setup_email_routes
 app.include_router(setup_email_routes())
@@ -752,6 +756,18 @@ async def serve_tasks(request: Request):
 
 @app.get("/library")
 async def serve_library(request: Request):
+    return await serve_index(request)
+
+@app.get("/workspace")
+async def serve_workspace(request: Request):
+    return await serve_index(request)
+
+@app.get("/obsidian")
+async def serve_obsidian(request: Request):
+    return await serve_index(request)
+
+@app.get("/idea-loop")
+async def serve_idea_loop(request: Request):
     return await serve_index(request)
 
 @app.get("/backgrounds")

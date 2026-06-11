@@ -286,6 +286,61 @@ body.bg-pattern-sparkles {
     .chat-meta-overlay:hover {
       color: color-mix(in srgb, var(--fg) 75%, transparent);
     }
+    /* Council model selection uses the normal model list, with duplicates allowed. */
+    .council-model-tray {
+      margin: 6px 8px 8px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--accent, var(--red)) 9%, transparent);
+      display: grid;
+      gap: 7px;
+    }
+    .council-tray-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+    }
+    .council-tray-head span,
+    .council-empty {
+      color: var(--fg-muted);
+      font-size: 10px;
+    }
+    .council-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .council-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 5px 3px 7px;
+      background: color-mix(in srgb, var(--bg) 78%, var(--fg) 22%);
+      font-size: 10px;
+    }
+    .council-chip span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 150px;
+    }
+    .council-chip button {
+      border: none;
+      background: transparent;
+      color: var(--fg-muted);
+      cursor: pointer;
+      padding: 0 2px;
+    }
+    body.models-council-mode .models-row .model-chat-btn {
+      color: var(--accent, var(--red));
+      border-color: color-mix(in srgb, var(--accent, var(--red)) 45%, var(--border));
+    }
+
     /* Offline model rows */
     .models-row-offline {
       opacity: 0.4;
@@ -811,6 +866,7 @@ body.bg-pattern-sparkles {
     }
     .modal-minimize-btn:hover { background: var(--fg); color: var(--bg); }
     .modal.modal-minimized { display: none !important; }
+
     /* Window tile snap ghost (desktop only) */
     #tile-ghost {
       position: fixed; pointer-events: none; z-index: 9000;
@@ -2457,7 +2513,7 @@ body.bg-pattern-sparkles {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.7; }
     }
-    /* Mode toggle — Agent / Chat */
+    /* Mode toggle — Agent / Chat / Council */
     .mode-toggle {
       display: flex;
       flex-shrink: 0;
@@ -2472,7 +2528,7 @@ body.bg-pattern-sparkles {
       position: absolute;
       top: 0;
       left: 0;
-      width: 50%;
+      width: 33.333%;
       height: 100%;
       background: color-mix(in srgb, var(--fg) 10%, transparent);
       border-radius: 9px;
@@ -2482,10 +2538,16 @@ body.bg-pattern-sparkles {
     .mode-toggle.mode-chat::before {
       transform: translateX(100%);
     }
+    .mode-toggle.mode-council::before {
+      transform: translateX(200%);
+    }
     #mode-agent-btn {
       border-radius: 10px 0 0 10px;
     }
     #mode-chat-btn {
+      border-radius: 0;
+    }
+    #mode-council-btn {
       border-radius: 0 10px 10px 0;
     }
     .mode-toggle-btn {
@@ -2688,6 +2750,26 @@ body.bg-pattern-sparkles {
     .model-picker-list {
       max-height: min(280px, 50dvh);
       overflow-y: auto;
+    }
+    .model-picker-council-tray {
+      display: grid;
+      gap: 7px;
+      margin: 0 0 6px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: color-mix(in srgb, var(--accent, var(--red)) 9%, transparent);
+    }
+    .model-picker-council-tray[hidden] {
+      display: none;
+    }
+    .model-picker-council-tray .council-chip span {
+      max-width: 220px;
+    }
+    .model-picker-council-tray .model-chat-btn {
+      width: 100%;
+      justify-content: center;
+      min-height: 28px;
     }
     .model-picker-list.is-empty {
       max-height: 0;
@@ -4733,6 +4815,7 @@ body.bg-pattern-sparkles {
       #research-overlay,
       #theme-modal,
       #settings-modal,
+      .workspace-modal,
       #email-lib-modal {
         left: calc(var(--icon-rail-w, 48px) + var(--sidebar-w, 0px));
         width: calc(100% - (var(--icon-rail-w, 48px) + var(--sidebar-w, 0px)));
@@ -35113,4 +35196,639 @@ body.theme-frosted .modal {
 .slash-ac-empty code {
   font-family: 'Fira Code', ui-monospace, monospace;
   color: var(--accent, var(--red));
+}
+
+/* Unified Workspace - uses existing Odysseus modal/admin/doclib surfaces */
+.workspace-modal .workspace-modal-content {
+  position: fixed;
+  width: min(1180px, 96vw);
+  max-height: 92vh;
+  font-size: 12px;
+}
+.workspace-modal .workspace-header h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-modal .workspace-header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.workspace-modal .workspace-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.workspace-modal .workspace-panel {
+  margin: 0;
+}
+.workspace-modal .workspace-panel h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.workspace-modal .workspace-panel-fill {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-modal .workspace-stat-grid,
+.workspace-modal .workspace-note-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+.workspace-modal .workspace-list {
+  max-height: 100%;
+  overflow: auto;
+  padding-right: 2px;
+}
+.workspace-modal .workspace-stat-card,
+.workspace-modal .workspace-note-card,
+.workspace-modal .workspace-artifact-row,
+.workspace-modal .workspace-card {
+  display: block;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+  box-sizing: border-box;
+}
+.workspace-modal .workspace-stat-card {
+  text-align: left;
+  cursor: pointer;
+  padding: 12px 14px 14px;
+}
+.workspace-modal .workspace-stat-header,
+.workspace-modal .workspace-card-head {
+  display: flex;
+  align-items: center;
+}
+.workspace-modal .workspace-stat-header {
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.workspace-modal .workspace-stat-card strong {
+  font-size: 18px;
+  color: var(--accent, var(--red));
+}
+.workspace-modal .workspace-stat-card p,
+.workspace-modal .workspace-note-card p,
+.workspace-modal .workspace-artifact-row p,
+.workspace-modal .workspace-card p {
+  margin: 7px 0 0;
+  color: var(--fg-muted, #888);
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+.workspace-modal .workspace-kind-tabs {
+  flex-wrap: wrap;
+}
+.workspace-modal .workspace-kind-tab span {
+  margin-left: 6px;
+  opacity: 0.6;
+}
+.workspace-modal .workspace-capture {
+  display: grid;
+  gap: 8px;
+}
+.workspace-modal .workspace-capture input,
+.workspace-modal .workspace-capture textarea,
+.workspace-modal .workspace-card select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
+  color: var(--fg);
+  font: inherit;
+  padding: 7px 9px;
+}
+.workspace-modal .workspace-capture textarea {
+  resize: vertical;
+}
+.workspace-modal .workspace-capture-row {
+  display: flex;
+  gap: 8px;
+}
+.workspace-modal .workspace-capture-row input {
+  flex: 1;
+}
+.workspace-modal .workspace-card-head {
+  align-items: center;
+  gap: 10px;
+}
+.workspace-modal .workspace-card-head strong {
+  min-width: 0;
+}
+.workspace-modal .workspace-card-head select {
+  margin-left: auto;
+  width: auto;
+}
+.workspace-modal .workspace-evidence {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 88%, var(--fg) 12%);
+  padding: 8px;
+}
+.workspace-modal .workspace-kind-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--accent, var(--red));
+}
+.workspace-modal .workspace-empty,
+.workspace-modal .workspace-empty-inline {
+  color: var(--fg-muted, #888);
+  padding: 14px;
+  text-align: center;
+}
+.workspace-modal .workspace-card-actions {
+  margin-top: 9px;
+}
+.workspace-modal .idea-loop-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+}
+.workspace-modal .idea-loop-column {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--bg)) 92%, var(--fg) 8%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace-modal .idea-loop-column-header {
+  padding: 13px 13px 10px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+.workspace-modal .idea-loop-column-header span {
+  display: inline-flex;
+  margin-bottom: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 9px;
+  color: var(--accent, var(--red));
+}
+.workspace-modal .idea-loop-column-header h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+.workspace-modal .idea-loop-column-header p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--fg-muted, #888);
+  line-height: 1.35;
+}
+.workspace-modal .idea-loop-gates {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.workspace-modal .idea-loop-gates span {
+  margin: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 90%, var(--fg) 10%);
+  color: var(--fg-muted, #888);
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.workspace-modal .idea-loop-add-btn {
+  width: 28px;
+  height: 28px;
+  justify-self: end;
+  margin-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, var(--red)) 14%, transparent);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+}
+.workspace-modal .idea-loop-add-btn:hover {
+  border-color: var(--accent, var(--red));
+  color: var(--accent, var(--red));
+}
+.workspace-modal .idea-loop-capture-popover {
+  position: absolute;
+  z-index: 4;
+  left: 10px;
+  right: 10px;
+  top: 92px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel, var(--bg)) 96%, var(--fg) 4%);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.38);
+  overflow: hidden;
+}
+.workspace-modal .idea-loop-capture-popover[hidden] {
+  display: none;
+}
+.workspace-modal .idea-loop-capture {
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.workspace-modal .idea-loop-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.workspace-modal .idea-loop-capture input,
+.workspace-modal .idea-loop-capture textarea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
+  color: var(--fg);
+  font: inherit;
+  padding: 7px 9px;
+  min-width: 0;
+}
+.workspace-modal .idea-loop-capture textarea {
+  resize: vertical;
+}
+.workspace-modal .idea-loop-card-stack {
+  padding: 12px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.workspace-modal .idea-loop-card {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 12px;
+  border-radius: 12px;
+  min-height: 0;
+  height: auto !important;
+  max-height: none;
+  overflow: visible !important;
+  display: grid;
+  gap: 9px;
+  background: color-mix(in srgb, var(--panel, var(--bg)) 94%, var(--fg) 6%);
+}
+.workspace-modal .idea-loop-card-head {
+  align-items: flex-start;
+  gap: 10px;
+}
+.workspace-modal .idea-loop-card-head strong {
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.workspace-modal .idea-loop-status-pill {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--accent, var(--red));
+  background: color-mix(in srgb, var(--accent, var(--red)) 10%, transparent);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.workspace-modal .idea-loop-card-body {
+  display: block;
+  color: var(--fg);
+  line-height: 1.48;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 56px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 2px 3px 2px 0;
+}
+.workspace-modal .idea-loop-artifact-preview {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg) 88%, var(--fg) 12%);
+  cursor: zoom-in;
+}
+.workspace-modal .idea-loop-artifact-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.workspace-modal .idea-loop-artifact-head span {
+  color: var(--fg-muted, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 9px;
+}
+.workspace-modal .idea-loop-artifact-preview iframe {
+  display: block;
+  width: 100%;
+  height: 360px;
+  border: 0;
+  background: #fff;
+  pointer-events: none;
+}
+.workspace-modal .idea-loop-artifact-open {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: zoom-in;
+}
+.workspace-modal .idea-loop-artifact-open:focus-visible {
+  outline: 2px solid var(--accent, var(--red));
+  outline-offset: -3px;
+}
+.idea-loop-artifact-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  padding: 14px;
+  background: color-mix(in srgb, #05070a 88%, transparent);
+}
+.idea-loop-artifact-fullscreen-shell {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border: 1px solid color-mix(in srgb, #fff 18%, transparent);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg, #111);
+  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.55);
+}
+.idea-loop-artifact-fullscreen-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg, #111) 92%, var(--fg, #fff) 8%);
+}
+.idea-loop-artifact-fullscreen-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.idea-loop-artifact-fullscreen-close {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg, #fff) 8%, transparent);
+  color: var(--fg, #fff);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.idea-loop-artifact-fullscreen iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
+.workspace-modal .idea-loop-card-full {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.workspace-modal .idea-loop-card-full summary {
+  cursor: pointer;
+  color: var(--accent, var(--red));
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.workspace-modal .idea-loop-card-full pre {
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg-muted, #aaa);
+  font: 11px/1.45 'Fira Code', ui-monospace, monospace;
+}
+.workspace-modal .idea-loop-card-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.workspace-modal .idea-loop-card-meta select {
+  width: auto;
+  max-width: 112px;
+  padding: 4px 7px;
+  font-size: 11px;
+}
+.workspace-modal .idea-loop-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 0;
+}
+.workspace-modal .idea-loop-card-actions .doclib-card-action-btn {
+  min-height: 26px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.workspace-modal .workspace-graph-panel {
+  min-height: 520px;
+}
+.workspace-modal .obsidian-graph-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 150px 140px auto;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+}
+.workspace-modal .obsidian-graph-toolbar input,
+.workspace-modal .obsidian-graph-toolbar select {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
+  color: var(--fg);
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+}
+.workspace-modal .obsidian-graph-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted, #888);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.workspace-modal .obsidian-graph-toolbar input[type="range"] {
+  width: 74px;
+  padding: 0;
+}
+.workspace-modal .obsidian-graph-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  gap: 12px;
+  min-height: 390px;
+}
+.workspace-modal .obsidian-graph-svg {
+  width: 100%;
+  min-height: 390px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--accent, var(--red)) 12%, transparent), transparent 28%),
+    color-mix(in srgb, var(--panel, var(--bg)) 94%, var(--fg) 6%);
+}
+.workspace-modal .obsidian-graph-edge {
+  fill: none;
+  stroke: color-mix(in srgb, var(--fg) 34%, transparent);
+  stroke-width: 1.3;
+  marker-end: url(#obsidian-arrow);
+}
+.workspace-modal .obsidian-graph-svg.hide-arrows .obsidian-graph-edge {
+  marker-end: none;
+}
+.workspace-modal .obsidian-graph-edge.is-muted {
+  opacity: 0.16;
+}
+.workspace-modal .obsidian-graph-edge.is-selected {
+  stroke: var(--accent, var(--red));
+  stroke-width: 2.4;
+  opacity: 1;
+}
+.workspace-modal .obsidian-graph-node {
+  cursor: pointer;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.workspace-modal .obsidian-graph-node circle {
+  stroke: color-mix(in srgb, var(--bg) 92%, #fff 8%);
+  stroke-width: 2;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25));
+}
+.workspace-modal .obsidian-graph-node text {
+  fill: var(--fg);
+  font: 11px/1.2 Inter, system-ui, sans-serif;
+  paint-order: stroke;
+  stroke: color-mix(in srgb, var(--bg) 88%, transparent);
+  stroke-width: 4px;
+}
+.workspace-modal .obsidian-graph-node.is-muted {
+  opacity: 0.18;
+}
+.workspace-modal .obsidian-graph-node.is-selected circle {
+  stroke: var(--accent, var(--red));
+  stroke-width: 3;
+}
+.workspace-modal .obsidian-graph-inspector {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--panel, var(--bg)) 94%, var(--fg) 6%);
+  overflow: auto;
+}
+.workspace-modal .obsidian-graph-inspector h3,
+.workspace-modal .obsidian-graph-inspector h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.workspace-modal .obsidian-graph-inspector h4 {
+  margin-top: 12px;
+  color: var(--accent, var(--red));
+}
+.workspace-modal .obsidian-graph-inspector strong,
+.workspace-modal .obsidian-graph-inspector span {
+  display: block;
+}
+.workspace-modal .obsidian-graph-inspector span,
+.workspace-modal .obsidian-graph-inspector p,
+.workspace-modal .obsidian-graph-inspector li,
+.workspace-modal .obsidian-graph-inspector em {
+  color: var(--fg-muted, #888);
+  line-height: 1.45;
+}
+.workspace-modal .obsidian-graph-inspector ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.workspace-modal .obsidian-graph-legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: var(--fg-muted, #888);
+  font-size: 11px;
+}
+.workspace-modal .obsidian-graph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.workspace-modal .obsidian-graph-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  display: inline-block;
+}
+@media (max-width: 900px) {
+  .workspace-modal .idea-loop-board {
+    grid-template-columns: 1fr;
+  }
+  .workspace-modal .idea-loop-column {
+    min-height: 360px;
+  }
+}
+@media (max-width: 768px) {
+  .workspace-modal .workspace-modal-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh;
+    max-height: 100dvh !important;
+    border-radius: 14px 14px 0 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: 0 !important;
+    transform: none !important;
+  }
+  .workspace-modal .workspace-capture-row,
+  .workspace-modal .workspace-header-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }

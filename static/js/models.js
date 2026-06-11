@@ -16,6 +16,10 @@ import { sortModelIds } from './modelSort.js';
 let API_BASE = '';
 let _cachedItems = []; // cached /api/models items for model-switch dropdown
 let _lastFetchTime = 0;
+let _councilMode = false;
+let _councilParticipants = [];
+let _councilStartHandler = null;
+
 const _FETCH_CACHE_TTL = 30000; // 30s client-side cache for /api/models
 const COLLAPSE_KEY = 'odysseus-models-collapsed';
 const FAVORITES_KEY = 'odysseus-model-favorites';
@@ -74,6 +78,118 @@ function _setSortMode(mode) {
 /**
  * Build a single model row element.
  */
+function _escape(value) {
+  return String(value ?? '').replace(/[&<>"]/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+  }[ch]));
+}
+
+function _getCouncilTray() {
+  let tray = document.getElementById('council-model-tray');
+  const box = document.getElementById('models');
+  if (!box) return null;
+  if (!tray) {
+    tray = document.createElement('div');
+    tray.id = 'council-model-tray';
+    tray.className = 'council-model-tray';
+    box.parentElement?.insertBefore(tray, box);
+  }
+  return tray;
+}
+
+function _renderCouncilTray() {
+  const tray = _getCouncilTray();
+  if (!tray) return;
+  if (!_councilMode) {
+    tray.remove();
+    _notifyCouncilSelectionChanged();
+    return;
+  }
+  const items = _councilParticipants.map((p, idx) => `
+    <div class="council-chip" title="${_escape(p.display)}">
+      <span>${idx + 1}. ${_escape(p.display)}</span>
+      <button type="button" data-idx="${idx}" aria-label="Remove participant">&times;</button>
+    </div>`).join('');
+  tray.innerHTML = `
+    <div class="council-tray-head">
+      <strong>Council models</strong>
+      <span>${_councilParticipants.length} selected — duplicates allowed</span>
+    </div>
+    <div class="council-chip-row">${items || '<span class="council-empty">Choose at least two models from the list below.</span>'}</div>
+    <button type="button" id="council-start-btn" class="model-chat-btn" ${_councilParticipants.length < 2 ? 'disabled' : ''}>Start Council</button>`;
+  tray.querySelectorAll('.council-chip button').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = Number(btn.dataset.idx);
+      _councilParticipants.splice(idx, 1);
+      _renderCouncilTray();
+    });
+  });
+  tray.querySelector('#council-start-btn')?.addEventListener('click', async () => {
+    await startCouncilSelection();
+  });
+  _notifyCouncilSelectionChanged();
+}
+
+function _notifyCouncilSelectionChanged() {
+  try {
+    document.dispatchEvent(new CustomEvent('odysseus:council-selection-changed', {
+      detail: {
+        active: _councilMode,
+        participants: getCouncilParticipants(),
+      },
+    }));
+  } catch (_) {}
+}
+
+export function isCouncilSelectionMode() {
+  return _councilMode;
+}
+
+export function addCouncilParticipant(model) {
+  if (!_councilMode || !model || !model.mid) return false;
+  _trackUsage(model.mid);
+  _councilParticipants.push({ ...model, _groupName: `Agent ${_councilParticipants.length + 1}` });
+  _renderCouncilTray();
+  uiModule.showToast(`Added ${model.display.split('/').pop()} to Council`);
+  return true;
+}
+
+export function removeCouncilParticipant(index) {
+  const idx = Number(index);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= _councilParticipants.length) return false;
+  _councilParticipants.splice(idx, 1);
+  _renderCouncilTray();
+  return true;
+}
+
+export async function startCouncilSelection() {
+  if (_councilParticipants.length < 2 || !_councilStartHandler) return false;
+  return _councilStartHandler([..._councilParticipants]);
+}
+
+export function setCouncilSelectionMode(active, onStart) {
+  _councilMode = Boolean(active);
+  _councilStartHandler = active ? onStart : null;
+  if (!_councilMode) _councilParticipants = [];
+  document.body.classList.toggle('models-council-mode', _councilMode);
+  refreshModels(false);
+  _renderCouncilTray();
+  _notifyCouncilSelectionChanged();
+}
+
+export function getCouncilParticipants() {
+  return [..._councilParticipants];
+}
+
+export function clearCouncilParticipants() {
+  _councilParticipants = [];
+  _renderCouncilTray();
+}
+
 function _startChat(url, mid, endpointId) {
   // Block model switching while compare mode is active
   if (window.compareModule && window.compareModule.isActive()) return;
@@ -130,7 +246,7 @@ function _buildModelRow(mid, url, displayName, endpointId, offline, modelType) {
 
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.textContent = offline ? 'Offline' : (modelType === 'image' ? '+ Image' : '+ Chat');
+  btn.textContent = offline ? 'Offline' : (_councilMode ? '+ Council' : (modelType === 'image' ? '+ Image' : '+ Chat'));
   btn.className = 'model-chat-btn';
   btn.style.transition = 'all 0.2s ease';
   if (offline) {
@@ -140,6 +256,10 @@ function _buildModelRow(mid, url, displayName, endpointId, offline, modelType) {
   } else {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (_councilMode) {
+        addCouncilParticipant({ mid, url, display: displayName, endpointId });
+        return;
+      }
       _startChat(url, mid, endpointId);
     });
   }
@@ -152,6 +272,10 @@ function _buildModelRow(mid, url, displayName, endpointId, offline, modelType) {
     row.addEventListener('click', (e) => {
       if (e.target.closest('.item-drag-handle') || e.target.closest('.model-fav-btn')) return;
       if (_touchMoved) { _touchMoved = false; return; }
+      if (_councilMode) {
+        addCouncilParticipant({ mid, url, display: displayName, endpointId });
+        return;
+      }
       _startChat(url, mid, endpointId);
     });
   }
@@ -628,6 +752,13 @@ const modelsModule = {
   refreshModels,
   refreshProviders,
   getCachedItems,
+  setCouncilSelectionMode,
+  getCouncilParticipants,
+  clearCouncilParticipants,
+  isCouncilSelectionMode,
+  addCouncilParticipant,
+  removeCouncilParticipant,
+  startCouncilSelection,
 };
 
 export default modelsModule;

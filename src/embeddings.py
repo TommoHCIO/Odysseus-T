@@ -237,7 +237,7 @@ def get_embedding_client():
             return client
         except Exception as e:
             _http_embed_down = True
-            logger.warning(f"HTTP embedding API unavailable ({e}); using local FastEmbed for the rest of this process")
+            logger.info(f"HTTP embedding API unavailable ({e}); using local FastEmbed for the rest of this process")
 
     # Fall back to local fastembed
     try:
