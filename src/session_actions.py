@@ -53,6 +53,8 @@ async def run_auto_sort(owner: str, skip_llm: bool = False) -> str:
         for row in rows:
             if getattr(row, 'is_important', False):
                 continue
+            if (row.name or "").strip().startswith("[GRP]"):
+                continue
             if (row.name or "").strip() == "Incognito":
                 deleted_throwaway += 1
                 db.delete(row)

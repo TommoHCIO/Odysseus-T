@@ -62,7 +62,7 @@ class UploadHandler:
             self.file_detector = magic.Magic(mime=True)
         except Exception:
             self.file_detector = None
-            logger.warning("python-magic not available, falling back to basic detection")
+            logger.info("python-magic not available, falling back to basic detection")
     
     def inside_base_dir(self, path: str) -> bool:
         """Check if path is inside base directory"""

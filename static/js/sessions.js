@@ -1362,8 +1362,8 @@ export async function loadSessions() {
     } else if (currentSessionId && activeSessions.some(s => s.id === currentSessionId)) {
       targetId = currentSessionId;
     } else if (currentSessionId) {
-      // Session was just created but may not be in the list yet — keep it
-      targetId = currentSessionId;
+      // Cached current session no longer exists server-side.
+      _clearStaleSessionState(currentSessionId);
     } else if (savedId && activeSessions.some(s => s.id === savedId)) {
       targetId = savedId;
     } else if (!_skipAutoSelect && _realSessions.length > 0) {
@@ -1489,6 +1489,17 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       if (presetsModule && presetsModule.onSessionSwitch) presetsModule.onSessionSwitch(id);
     } catch (e) {}
     const meta = sessions.find(s => s.id === id);
+    if (!meta && id !== 'openclaw') {
+      _clearStaleSessionState(id);
+      document.querySelectorAll('.list-item.active-session').forEach(el => el.classList.remove('active-session'));
+      const chatHistory = uiModule.el('chat-history');
+      if (chatHistory) {
+        chatHistory.innerHTML = '';
+        chatRenderer.showWelcomeScreen?.();
+      }
+      updateModelPicker();
+      return;
+    }
 
     // Detach any in-flight stream to background instead of aborting
     try {
@@ -1556,6 +1567,23 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
     let msgHistory = [], modelName = null;
     if (!isOC) {
       const res = await fetch(`${API_BASE}/api/history/${id}`);
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 403) {
+          if (currentSessionId === id) currentSessionId = null;
+          if (Storage.get('lastSessionId') === id) Storage.remove('lastSessionId');
+          if (window.location.hash === `#${id}`) {
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+          document.querySelectorAll('.list-item.active-session').forEach(el => el.classList.remove('active-session'));
+          if (chatHistory) {
+            chatHistory.innerHTML = '';
+            chatRenderer.showWelcomeScreen?.();
+          }
+          updateModelPicker();
+          return;
+        }
+        throw new Error(`Failed to load session history: HTTP ${res.status}`);
+      }
       const data = await res.json();
       if (navToken !== _sessionNavToken || currentSessionId !== id) return;
       msgHistory = data.history || [];

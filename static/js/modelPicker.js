@@ -209,6 +209,70 @@ function _initModelPickerDropdown() {
     return sortModelObjects(result);
   }
 
+  function _isCouncilPickerMode() {
+    return !!(window.modelsModule && window.modelsModule.isCouncilSelectionMode && window.modelsModule.isCouncilSelectionMode());
+  }
+
+  function _ensureCouncilTray() {
+    let tray = document.getElementById('model-picker-council-tray');
+    if (!tray) {
+      tray = document.createElement('div');
+      tray.id = 'model-picker-council-tray';
+      tray.className = 'model-picker-council-tray';
+      menu.insertBefore(tray, listEl);
+    }
+    return tray;
+  }
+
+  function _renderCouncilPickerTray() {
+    const tray = _ensureCouncilTray();
+    if (!_isCouncilPickerMode()) {
+      tray.hidden = true;
+      tray.innerHTML = '';
+      return;
+    }
+
+    const participants = window.modelsModule.getCouncilParticipants
+      ? window.modelsModule.getCouncilParticipants()
+      : [];
+    const chips = participants.map((p, idx) => `
+      <div class="council-chip" title="${_escapeHtml(p.display || p.mid)}">
+        <span>${idx + 1}. ${_escapeHtml(p.display || p.mid)}</span>
+        <button type="button" data-idx="${idx}" aria-label="Remove participant">&times;</button>
+      </div>`).join('');
+
+    tray.hidden = false;
+    tray.innerHTML = `
+      <div class="council-tray-head">
+        <strong>Council models</strong>
+        <span>${participants.length} selected - duplicates allowed</span>
+      </div>
+      <div class="council-chip-row">${chips || '<span class="council-empty">Pick at least two models from this list.</span>'}</div>
+      <button type="button" id="model-picker-council-start-btn" class="model-chat-btn" ${participants.length < 2 ? 'disabled' : ''}>Start Council</button>`;
+
+    tray.querySelectorAll('.council-chip button').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.modelsModule?.removeCouncilParticipant?.(Number(btn.dataset.idx));
+        _renderCouncilPickerTray();
+      });
+    });
+    tray.querySelector('#model-picker-council-start-btn')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const started = await window.modelsModule?.startCouncilSelection?.();
+      if (started !== false) _close();
+    });
+  }
+
+  function _escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"]/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+    }[ch]));
+  }
+
   // ── Provider display names and grouping ──
   const _PROVIDER_NAMES = {
     '01-ai': 'Yi', 'abacusai': 'Abacus AI', 'adept': 'Adept',
@@ -259,6 +323,7 @@ function _initModelPickerDropdown() {
 
   function _populate(filter) {
     listEl.innerHTML = '';
+    _renderCouncilPickerTray();
     const all = _getAllModels();
     const q = (filter || '').trim().toLowerCase();
     const hasAnyModel = all.length > 0;
@@ -361,7 +426,21 @@ function _initModelPickerDropdown() {
       });
       row.appendChild(favDot);
 
-      row.addEventListener('click', () => _pick(m));
+      row.addEventListener('click', () => {
+        if (_isCouncilPickerMode()) {
+          const added = window.modelsModule?.addCouncilParticipant?.({
+            mid: m.mid,
+            url: m.url,
+            display: m.display || m.mid,
+            endpointId: m.endpointId,
+          });
+          if (added !== false) {
+            _renderCouncilPickerTray();
+          }
+          return;
+        }
+        _pick(m);
+      });
       listEl.appendChild(row);
     }
 
@@ -581,6 +660,11 @@ function _initModelPickerDropdown() {
     }
   });
 
+  document.addEventListener('odysseus:council-selection-changed', () => {
+    if (!menu.classList.contains('hidden')) _renderCouncilPickerTray();
+    updateModelPicker();
+  });
+
   search.addEventListener('input', () => _populate(search.value));
   search.addEventListener('click', (e) => e.stopPropagation());
   search.addEventListener('keydown', (e) => {
@@ -609,6 +693,7 @@ export function updateModelPicker() {
   if (!_deps) return;
   const label = document.getElementById('model-picker-label');
   if (!label) return;
+  const isCouncilPicking = !!(window.modelsModule && window.modelsModule.isCouncilSelectionMode && window.modelsModule.isCouncilSelectionMode());
   // Hide model picker when group chat is active
   const wrap = document.getElementById('model-picker-wrap');
   if (window.groupModule && window.groupModule.isActive()) {
@@ -620,6 +705,11 @@ export function updateModelPicker() {
     wrap.style.display = '';
     wrap.style.opacity = '';
     wrap.style.pointerEvents = '';
+  }
+  if (isCouncilPicking) {
+    const count = window.modelsModule?.getCouncilParticipants?.().length || 0;
+    label.textContent = count ? `Council: ${count} selected` : 'Choose Council agents';
+    return;
   }
   const currentSessionId = _deps.getCurrentSessionId();
   const sessions = _deps.getSessions();

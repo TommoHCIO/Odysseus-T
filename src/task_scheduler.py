@@ -654,7 +654,7 @@ class TaskScheduler:
                 # Record which model actually ran (resolved inside the executor).
                 if getattr(self, "_last_run_model", None):
                     run.model = self._last_run_model
-                if run.status == "success":
+                if run.status == "success" and task_type != "action":
                     await self._deliver_task_result(task, result, db, model=getattr(self, "_last_run_model", None))
             except TaskDeferred as defer:
                 count = self._task_defer_counts.get(task_id, 0) + 1
@@ -777,6 +777,10 @@ class TaskScheduler:
 
         except Exception as exec_exc:
             logger.exception(f"Task {task_id} execution error")
+            try:
+                db.rollback()
+            except Exception:
+                pass
             # Fetch the task's owner so the error notification reaches
             # the same user the success notification would have.
             _owner = None
@@ -1228,6 +1232,19 @@ class TaskScheduler:
 
         # Ensure a session exists for output
         session_id = task.session_id
+        if session_id:
+            try:
+                existing_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+            except Exception:
+                existing_session = None
+            if not existing_session:
+                logger.info(
+                    "Task '%s' target session %s no longer exists; creating a replacement task session",
+                    task.name,
+                    session_id,
+                )
+                session_id = None
+                task.session_id = None
         if not session_id:
             session_id = str(uuid.uuid4())
             sess = DbSession(
@@ -1413,9 +1430,50 @@ class TaskScheduler:
             timestamp=datetime.utcnow(),
             meta_data=msg_meta,
         )
-        db.add(user_msg)
-        db.add(assistant_msg)
-        db.commit()
+        try:
+            db.add(user_msg)
+            db.add(assistant_msg)
+            db.commit()
+        except Exception as exc:
+            logger.info(
+                "Task '%s' result delivery lost session %s during commit; retrying in a fresh task session: %s",
+                task.name,
+                session_id,
+                exc,
+            )
+            db.rollback()
+            session_id = str(uuid.uuid4())
+            sess = DbSession(
+                id=session_id,
+                name=f"[Task] {task.name}",
+                endpoint_url=endpoint_url or "",
+                model=model_name or "",
+                owner=task.owner,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            db.add(sess)
+            task.session_id = session_id
+            db.commit()
+            user_msg = ChatMessage(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                role="user",
+                content=user_content,
+                timestamp=datetime.utcnow(),
+                meta_data=msg_meta,
+            )
+            assistant_msg = ChatMessage(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                role="assistant",
+                content=result or "",
+                timestamp=datetime.utcnow(),
+                meta_data=msg_meta,
+            )
+            db.add(user_msg)
+            db.add(assistant_msg)
+            db.commit()
 
         if self._session_manager:
             try:

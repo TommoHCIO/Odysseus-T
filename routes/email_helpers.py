@@ -549,9 +549,9 @@ def _get_email_config(account_id: str | None = None, owner: str = "") -> dict:
                     "from_address": row.from_address or row.imap_user or "",
                 }
                 if not (cfg["smtp_host"] and cfg["smtp_user"] and cfg["smtp_password"]):
-                    logger.warning(f"SMTP not configured for account {row.name!r}")
+                    logger.debug(f"SMTP not configured for account {row.name!r}")
                 if not (cfg["imap_host"] and cfg["imap_user"] and cfg["imap_password"]):
-                    logger.warning(f"IMAP not configured for account {row.name!r}")
+                    logger.debug(f"IMAP not configured for account {row.name!r}")
                 return cfg
         finally:
             db.close()
@@ -579,9 +579,9 @@ def _get_email_config(account_id: str | None = None, owner: str = "") -> dict:
         "from_address": settings.get("email_from", os.environ.get("EMAIL_FROM", "")),
     }
     if not (cfg["smtp_host"] and cfg["smtp_user"] and cfg["smtp_password"]):
-        logger.warning("SMTP not configured — add an Email Account in Settings or set env vars")
+        logger.debug("SMTP not configured; email send remains disabled until an account or env vars are set")
     if not (cfg["imap_host"] and cfg["imap_user"] and cfg["imap_password"]):
-        logger.warning("IMAP not configured — add an Email Account in Settings or set env vars")
+        logger.debug("IMAP not configured; inbox list remains empty until an account or env vars are set")
     return cfg
 
 

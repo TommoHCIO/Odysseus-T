@@ -592,6 +592,9 @@ def setup_email_routes():
         the fallback config lookup is scoped to this user's accounts only.
         """
         try:
+            cfg = _get_email_config(account_id, owner=owner)
+            if not (cfg.get("imap_host") and cfg.get("imap_user") and cfg.get("imap_password")):
+                return {"emails": [], "total": 0, "folder": folder, "offset": offset, "configured": False}
             conn = _imap_connect(account_id, owner=owner)
             select_status, _ = conn.select(_q(folder), readonly=True)
             if select_status != "OK":
@@ -927,8 +930,11 @@ def setup_email_routes():
             conn.logout()
             return {"emails": emails, "total": total, "folder": folder, "offset": offset}
         except Exception as e:
-            logger.error(f"Failed to list emails: {e}")
             detail = str(e).strip()
+            if isinstance(e, (ConnectionRefusedError, TimeoutError, OSError)):
+                logger.info("Email list unavailable: %s", detail[:180] if detail else type(e).__name__)
+            else:
+                logger.error(f"Failed to list emails: {e}")
             return {"emails": [], "total": 0, "error": f"Mail operation failed: {detail[:180]}" if detail else "Mail operation failed"}
 
     @router.get("/list")

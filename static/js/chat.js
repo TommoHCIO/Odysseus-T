@@ -432,6 +432,20 @@ import createResearchSynapse from './researchSynapse.js';
       }
     }
 
+    // Active Council/Group Chat routes through group.js, not the current mono-model session.
+    if (window.groupModule && window.groupModule.isActive && window.groupModule.isActive()) {
+      addMessage('user', msg);
+      el('message').value = '';
+      if (window._syncModelPickerAutohide) window._syncModelPickerAutohide();
+      if (uiModule.autoResize) uiModule.autoResize(el('message'));
+      try {
+        await window.groupModule.sendMessage(msg);
+      } finally {
+        _releaseSendFlag();
+      }
+      return;
+    }
+
     // Materialize pending session (deferred from model click) on first message
     if (sessionModule.hasPendingChat && sessionModule.hasPendingChat()) {
       const ok = await sessionModule.materializePendingSession();

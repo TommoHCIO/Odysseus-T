@@ -10,8 +10,8 @@ import logging
 from core.session_manager import SessionManager
 from core.models import ChatMessage
 from src.request_models import SessionResponse
-from core.database import Session as DbSession, SessionLocal, Document, GalleryImage
-from src.auth_helpers import get_current_user, effective_user, require_user
+from core.database import Session as DbSession, SessionLocal, Document, GalleryImage, ChatMessage as DbChatMessage
+from src.auth_helpers import get_current_user, effective_user, require_user, _auth_disabled
 
 
 def _sanitize_export_filename(name: str) -> str:
@@ -34,7 +34,7 @@ def _verify_session_owner(request: Request, session_id: str):
         if user:
             if row.owner != user:
                 raise HTTPException(404, f"Session {session_id} not found")
-        elif row.owner is not None:
+        elif row.owner is not None and not _auth_disabled():
             raise HTTPException(404, f"Session {session_id} not found")
     finally:
         db.close()
@@ -149,6 +149,11 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
                 .filter(GalleryImage.session_id != None)
                 .distinct().all()
             )
+            message_session_ids = set(
+                r[0] for r in db.query(DbChatMessage.session_id)
+                .filter(DbChatMessage.session_id != None)
+                .distinct().all()
+            )
         finally:
             db.close()
 
@@ -166,6 +171,7 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
                      "message_count": msg_count_map.get(s.id, 0)}
                     for s in user_sessions.values()
                     if not s.archived
+                    and s.id in message_session_ids
                     and (s.name or "").strip() not in ("Nobody", "Incognito")]
 
         return sessions
@@ -835,6 +841,11 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             for row in rows:
                 # Never delete important sessions
                 if getattr(row, 'is_important', False):
+                    continue
+                # Hidden Council/group participant sessions may be empty for a
+                # moment while the browser creates the group and injects the
+                # role prompt. Auto-tidy must not race and delete them.
+                if (row.name or "").strip().startswith("[GRP]"):
                     continue
                 # Always delete incognito sessions during cleanup
                 if (row.name or "").strip() == "Incognito":

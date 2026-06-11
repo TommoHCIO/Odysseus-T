@@ -19,6 +19,20 @@ let _mode = 'round-robin';    // 'parallel' or 'round-robin'
 let _roundRobinIdx = 0;
 let _parentSessionId = null;
 const GROUP_STATE_KEY = 'odysseus-group-state';
+const COUNCIL_ROLES = [
+  'Product Strategist',
+  'Research Agent',
+  'Architect',
+  'UX Designer',
+  'Frontend Engineer',
+  'Backend Engineer',
+  'DevOps Engineer',
+  'QA Engineer',
+  'Documentation Agent',
+];
+const COUNCIL_CONSENSUS_TARGET = 85;
+const COUNCIL_MIN_AGENT_CONSENSUS = 80;
+const COUNCIL_MAX_CONSENSUS_ROUNDS = 3;
 
 export function init(apiBase) {
   API_BASE = apiBase;
@@ -331,7 +345,7 @@ export async function showModelPicker() {
     // Header
     const header = document.createElement('div');
     header.className = 'modal-header';
-    header.innerHTML = '<h4>Group Chat — Select Models</h4>';
+    header.innerHTML = '<h4>' + (document.body.classList.contains('council-mode-active') ? 'Council — Select Models' : 'Group Chat — Select Models') + '</h4>';
     const closeBtn = document.createElement('button');
     closeBtn.className = 'close-btn';
     closeBtn.innerHTML = '&#x2716;';
@@ -554,11 +568,14 @@ export async function startGroup(models, parentSessionId) {
     _parentSessionId = parentSessionId || 'group-' + Date.now();
   }
 
-  // Create a hidden session per model
-  for (const m of models) {
+  // Create a hidden session per participant. Multiple Council agents may use
+  // the same underlying model, so identify peers by position instead of model id.
+  for (let modelIdx = 0; modelIdx < models.length; modelIdx++) {
+    const m = models[modelIdx];
     try {
+      const displayName = m.character ? m.character.characterName : (m._groupName || m.display);
       const fd = new FormData();
-      fd.append('name', `[GRP] ${m.display}`);
+      fd.append('name', `[GRP] ${displayName}`);
       fd.append('endpoint_url', m.url);
       fd.append('model', m.mid);
       fd.append('skip_validation', 'true');
@@ -577,10 +594,9 @@ export async function startGroup(models, parentSessionId) {
       }
       _participantSessions.push(data.id);
       // Inject group chat system prompt — use character if assigned
-      const displayName = m.character ? m.character.characterName : m.display;
       m._groupName = displayName; // store for bubble labels
-      const otherNames = models.filter(x => x.mid !== m.mid).map(x =>
-        x.character ? x.character.characterName : x.display
+      const otherNames = models.filter((_, idx) => idx !== modelIdx).map(x =>
+        x.character ? x.character.characterName : (x._groupName || x.display)
       ).join(', ');
 
       const _groupEtiquette =
@@ -611,23 +627,6 @@ export async function startGroup(models, parentSessionId) {
   }
 
   _saveState();
-
-  // Now select the session so the UI switches to it.
-  if (_parentSessionId && window.sessionModule) {
-    // loadSessions auto-selects a session, and if it picks anything other
-    // than the parent while the group is active, that intermediate
-    // selectSession calls stopGroup() (wiping GROUP_STATE_KEY) — so the
-    // explicit selectSession below finds no state and lands on a plain chat.
-    // loadSessions resolves its target as: URL hash → currentSessionId →
-    // lastSaved → most-recent. Pin BOTH the hash and currentSessionId to the
-    // parent so it deterministically targets the group session and fires no
-    // group-killing intermediate select. (Setting currentSessionId alone
-    // wasn't enough — the stale hash outranks it.)
-    try { history.replaceState(null, '', '#' + _parentSessionId); } catch (e) {}
-    window.sessionModule.setCurrentSessionId(_parentSessionId);
-    await window.sessionModule.loadSessions();
-    await window.sessionModule.selectSession(_parentSessionId);
-  }
 }
 
 export function stopGroup() {
@@ -646,20 +645,24 @@ export async function sendMessage(msg) {
 
   const box = document.getElementById('chat-history');
   if (!box) return;
+  const councilWorkflow = _isCouncilWorkflowMessage(msg);
+  const outboundMsg = councilWorkflow ? _withCouncilProtocol(msg) : msg;
 
   // Save user message to parent session for persistence
   if (_parentSessionId) {
     fetch(`${API_BASE}/api/session/${_parentSessionId}/inject_messages`, {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: msg }] }),
+      body: JSON.stringify({ messages: [{ role: 'user', content: outboundMsg }] }),
     }).catch(() => {});
   }
 
-  if (_mode === 'parallel') {
-    await _sendParallel(msg, box);
+  if (councilWorkflow) {
+    await _sendCouncilDeliberative(outboundMsg, box, msg);
+  } else if (_mode === 'parallel') {
+    await _sendParallel(outboundMsg, box);
   } else {
-    await _sendRoundRobin(msg, box);
+    await _sendRoundRobin(outboundMsg, box);
   }
 }
 
@@ -671,6 +674,7 @@ function _createGroupBubble(model, box) {
   // Role label — use character name if assigned, otherwise model name
   const roleLabel = model._groupName || (model.character ? model.character.characterName : chatRenderer.shortModel(model.mid));
   const roleTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  wrap.dataset.participantName = roleLabel;
   wrap.innerHTML = `<div class="role">${roleLabel} <span class="role-timestamp">${roleTs}</span></div><div class="body"></div>`;
   chatRenderer.applyModelColor(wrap.querySelector('.role'), model.mid);
 
@@ -700,6 +704,7 @@ async function _sendParallel(msg, box) {
   // each response into the others' sessions so they're aware of each other on
   // the next message and can remark on it.
   await _syncAllResponses(holders);
+  return holders;
 }
 
 async function _sendRoundRobin(msg, box) {
@@ -709,6 +714,7 @@ async function _sendRoundRobin(msg, box) {
   // this round (and prior rounds, via the cross-session injection below), so
   // later responders can react to earlier ones.
   const order = _models.map((_, i) => i);
+  const holders = [];
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
@@ -718,6 +724,7 @@ async function _sendRoundRobin(msg, box) {
     const m = _models[idx];
 
     const wrap = _createGroupBubble(m, box);
+    holders.push(wrap);
     uiModule.scrollHistory();
 
     const ac = new AbortController();
@@ -728,25 +735,170 @@ async function _sendRoundRobin(msg, box) {
     // After each response, inject it into all OTHER participant sessions
     const response = wrap.dataset.raw || '';
     if (response) {
-      for (let j = 0; j < _participantSessions.length; j++) {
-        if (j === idx || !_participantSessions[j]) continue;
-        try {
-          await fetch(`${API_BASE}/api/session/${_participantSessions[j]}/inject_messages`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: [{
-              role: 'user',
-              content: `[${m._groupName || m.display}]: ${response}`
-            }]}),
-          });
-        } catch (e) { console.warn('[group] sync failed:', e); }
-      }
+      await _syncResponseToOtherSessions(idx, response);
     }
   }
   // Order is randomized per-message now, so _roundRobinIdx no longer drives
   // turn order; left in state for backward compat only.
   _saveState();
+  return holders;
+}
+
+async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
+  const order = _shuffleIndices(_models.length);
+  const holders = [];
+
+  _appendCouncilNotice(box, 'Council round 1: role positions and implementation proposals');
+  for (let turn = 0; turn < order.length; turn++) {
+    const idx = order[turn];
+    await _runCouncilTurn(
+      idx,
+      box,
+      holders,
+      'position',
+      _buildCouncilPhasePrompt(msg, 'position', idx, turn, order),
+      { suppressIdeaPush: true, phase: 'Council position', councilMode: true },
+      'Council position'
+    );
+  }
+
+  _appendCouncilNotice(box, 'Council evidence round: controlled tool checks and shared findings');
+  for (let turn = 0; turn < order.length; turn++) {
+    const idx = order[turn];
+    await _runCouncilTurn(
+      idx,
+      box,
+      holders,
+      'evidence',
+      _buildCouncilEvidencePrompt(msg, idx, turn, order, _buildCouncilTranscript(holders)),
+      {
+        suppressIdeaPush: true,
+        phase: 'Council evidence',
+        councilMode: true,
+        mode: 'agent',
+        allowWebSearch: true,
+        councilToolScope: 'evidence',
+      },
+      'Council evidence'
+    );
+  }
+
+  let consensus = null;
+  for (let round = 1; round <= COUNCIL_MAX_CONSENSUS_ROUNDS; round++) {
+    const passOrder = round % 2 ? order.slice().reverse() : order.slice();
+    _appendCouncilNotice(box, `Council convergence round ${round}: critique, revision, and blockers`);
+    for (let turn = 0; turn < passOrder.length; turn++) {
+      const idx = passOrder[turn];
+      await _runCouncilTurn(
+        idx,
+        box,
+        holders,
+        round === 1 ? 'critique' : 'revision',
+        _buildCouncilConvergencePrompt(msg, idx, turn, passOrder, round, consensus, _buildCouncilTranscript(holders)),
+        { suppressIdeaPush: true, phase: round === 1 ? 'Council critique' : `Council revision ${round}`, councilMode: true },
+        round === 1 ? 'Council critique' : `Council revision ${round}`
+      );
+    }
+
+    _appendCouncilNotice(box, `Council consensus vote ${round}: target ${COUNCIL_CONSENSUS_TARGET}%`);
+    const voteHolders = [];
+    for (let turn = 0; turn < order.length; turn++) {
+      const idx = order[turn];
+      const voteWrap = await _runCouncilTurn(
+        idx,
+        box,
+        holders,
+        'consensus',
+        _buildCouncilConsensusPrompt(msg, idx, turn, order, round, _buildCouncilTranscript(holders)),
+        { suppressIdeaPush: true, phase: `Council consensus ${round}`, councilMode: true },
+        `Council consensus ${round}`
+      );
+      voteHolders.push(voteWrap);
+    }
+    consensus = _summarizeCouncilConsensus(voteHolders);
+    _appendCouncilNotice(
+      box,
+      consensus.reached
+        ? `Council consensus reached: ${consensus.average}% average, ${consensus.minimum}% minimum`
+        : `Consensus not reached: ${consensus.average}% average, ${consensus.minimum}% minimum; continuing`
+    );
+    await _syncCouncilConsensusToSessions(consensus, round);
+    if (consensus.reached) break;
+  }
+
+  if (!consensus?.reached) {
+    _appendCouncilNotice(box, `Council stopped: consensus stayed below ${COUNCIL_CONSENSUS_TARGET}%; no Idea Loop artifact pushed`);
+    _saveState();
+    return holders;
+  }
+
+  const transcript = _buildCouncilTranscript(holders);
+  const stage = _councilStageFromTask(msg);
+  const buildPaths = stage === 'final' ? _councilBuildPaths(originalTask || msg) : null;
+  const synthesisIdx = order[order.length - 1] ?? 0;
+  _appendCouncilNotice(
+    box,
+    stage === 'final'
+      ? `Council synthesis: building final app package in ${buildPaths.host}`
+      : 'Council synthesis: consensus-approved artifact for Idea Loop'
+  );
+  const finalWrap = _createGroupBubble(_models[synthesisIdx], box);
+  finalWrap.dataset.councilPhase = 'synthesis';
+  finalWrap.dataset.councilFinal = '1';
+  finalWrap.dataset.councilTranscript = transcript;
+  finalWrap.dataset.councilConsensus = JSON.stringify(consensus);
+  if (buildPaths) finalWrap.dataset.councilBuildPath = buildPaths.host;
+  holders.push(finalWrap);
+  uiModule.scrollHistory();
+
+  const ac = new AbortController();
+  _abortControllers = [ac];
+  const synthesisOptions = {
+    pushTask: originalTask,
+    phase: 'Council synthesis',
+    councilMode: true,
+  };
+  if (stage === 'final') {
+    Object.assign(synthesisOptions, {
+      mode: 'agent',
+      allowBash: true,
+      allowWebSearch: true,
+      councilToolScope: 'build',
+    });
+  }
+  await _streamToHolder(
+    synthesisIdx,
+    _participantSessions[synthesisIdx],
+    _buildCouncilSynthesisPrompt(msg, transcript, buildPaths),
+    finalWrap,
+    ac,
+    synthesisOptions
+  );
+  _abortControllers = [];
+
+  const finalResponse = finalWrap.dataset.raw || '';
+  if (finalResponse) await _syncResponseToOtherSessions(synthesisIdx, finalResponse, 'Council synthesis');
+  _saveState();
+  return holders;
+}
+
+async function _runCouncilTurn(modelIdx, box, holders, phase, prompt, options, syncLabel) {
+  const wrap = _createGroupBubble(_models[modelIdx], box);
+  wrap.dataset.councilPhase = phase;
+  holders.push(wrap);
+  uiModule.scrollHistory();
+
+  const ac = new AbortController();
+  _abortControllers = [ac];
+  await _streamToHolder(modelIdx, _participantSessions[modelIdx], prompt, wrap, ac, options);
+  _abortControllers = [];
+
+  const response = wrap.dataset.raw || '';
+  if (wrap.dataset.streamError === '1') {
+    throw new Error(`${syncLabel || phase} failed for ${_councilParticipantName(modelIdx)}: ${response}`);
+  }
+  if (response) await _syncResponseToOtherSessions(modelIdx, response, syncLabel || phase);
+  return wrap;
 }
 
 /** After parallel responses, inject each model's response into all other sessions. */
@@ -754,25 +906,944 @@ async function _syncAllResponses(holders) {
   for (let i = 0; i < holders.length; i++) {
     const response = holders[i].dataset.raw || '';
     if (!response) continue;
-    const model = _models[i];
-    for (let j = 0; j < _participantSessions.length; j++) {
-      if (j === i || !_participantSessions[j]) continue;
-      try {
-        await fetch(`${API_BASE}/api/session/${_participantSessions[j]}/inject_messages`, {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: [{
-            role: 'user',
-            content: `[${model._groupName || model.display}]: ${response}`
-          }]}),
-        });
-      } catch (e) { /* silent */ }
+    await _syncResponseToOtherSessions(i, response);
+  }
+}
+
+async function _syncResponseToOtherSessions(modelIdx, response, phaseLabel = '') {
+  const model = _models[modelIdx];
+  const label = phaseLabel ? ` ${phaseLabel}` : '';
+  for (let j = 0; j < _participantSessions.length; j++) {
+    if (j === modelIdx || !_participantSessions[j]) continue;
+    try {
+      await fetch(`${API_BASE}/api/session/${_participantSessions[j]}/inject_messages`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{
+          role: 'user',
+          content: `[${model?._groupName || model?.display || 'Participant'}${label}]: ${response}`
+        }]}),
+      });
+    } catch (e) { console.warn('[group] sync failed:', e); }
+  }
+}
+
+function _shuffleIndices(count) {
+  const order = Array.from({ length: count }, (_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
+function _appendCouncilNotice(box, text) {
+  const notice = document.createElement('div');
+  notice.className = 'msg msg-system council-round-notice';
+  notice.style.cssText = 'margin:10px auto;padding:6px 10px;border:1px solid var(--border);border-radius:999px;font-size:11px;opacity:0.65;width:max-content;max-width:92%;';
+  notice.textContent = text;
+  box.appendChild(notice);
+  uiModule.scrollHistory();
+}
+
+function _councilRoleName(modelIdx) {
+  return COUNCIL_ROLES[modelIdx % COUNCIL_ROLES.length];
+}
+
+function _councilParticipantName(modelIdx) {
+  const model = _models[modelIdx] || {};
+  return model._groupName || model.character?.characterName || model.display || `Agent ${modelIdx + 1}`;
+}
+
+function _buildCouncilPhasePrompt(baseMsg, phase, modelIdx, turn, order) {
+  const name = _councilParticipantName(modelIdx);
+  const role = _councilRoleName(modelIdx);
+  const stage = _councilStageFromTask(baseMsg);
+  const priorNames = order.slice(0, turn).map(_councilParticipantName).join(', ') || 'no one yet';
+  const artifactGuard = _councilInterimArtifactGuard(stage);
+  if (phase === 'critique') {
+    return [
+      baseMsg,
+      '',
+      '[COUNCIL_PHASE:critique]',
+      `${name}, act primarily as ${role}. You are in the critique and convergence round for the ${stage} stage.`,
+      `Participants before you in this critique pass: ${priorNames}.`,
+      'Read the named Council messages already in this session.',
+      'Your response must:',
+      ...artifactGuard,
+      '- Name at least one participant you agree with and why.',
+      '- Name at least one participant you challenge, refine, or constrain.',
+      '- Compare at least two implementation paths or product choices.',
+      '- Identify risks, missing evidence, and the research/tool/test work needed.',
+      '- End with the concrete change you want the synthesis to adopt.',
+      '- Do not create the final Idea Loop artifact yet.',
+    ].join('\n');
+  }
+  return [
+    baseMsg,
+    '',
+    '[COUNCIL_PHASE:position]',
+    `${name}, act primarily as ${role}. You are in the opening position round for the ${stage} stage.`,
+    `Participants before you in this pass: ${priorNames}.`,
+    'Read any named Council messages already in this session before answering.',
+    'Your response must:',
+    ...artifactGuard,
+    '- State your role lens and the most important assumption to test.',
+    '- Offer a concrete implementation idea or product direction.',
+    '- Challenge one likely weak point before another participant does.',
+    '- Call out research/tool/browser/test evidence that should be gathered.',
+    '- Hand off one specific question to the rest of the Council.',
+    '- Do not create the final Idea Loop artifact yet.',
+  ].join('\n');
+}
+
+function _councilInterimArtifactGuard(stage) {
+  if (stage !== 'sketch' && stage !== 'final') return [
+    '- Keep this interim turn concise enough for the next participant to build on.',
+  ];
+  return [
+    '- Keep this interim turn under 250 words.',
+    '- Do not include fenced code blocks, raw HTML, CSS, JavaScript, file trees, or executable artifacts in this interim turn.',
+    '- Discuss prototype approach, interaction model, acceptance criteria, risks, and what the synthesis should implement.',
+    '- The synthesis turn is the only Council turn allowed to produce runnable code.',
+  ];
+}
+
+function _buildCouncilEvidencePrompt(baseMsg, modelIdx, turn, order, transcript) {
+  const name = _councilParticipantName(modelIdx);
+  const role = _councilRoleName(modelIdx);
+  const stage = _councilStageFromTask(baseMsg);
+  const priorNames = order.slice(0, turn).map(_councilParticipantName).join(', ') || 'no one yet';
+  const artifactGuard = _councilInterimArtifactGuard(stage);
+  return [
+    baseMsg,
+    '',
+    '[COUNCIL_PHASE:evidence]',
+    `${name}, act primarily as ${role}. You are in the evidence/tool round for the ${stage} stage.`,
+    `Participants before you in this evidence pass: ${priorNames}.`,
+    'You have controlled evidence tools in this turn. Use tools only when they can materially improve the Council decision.',
+    'Do not create, update, or edit documents, sessions, UI state, files, or final artifacts. Information-gathering tools and model checks are allowed.',
+    'Shared Council context so far:',
+    _compactCouncilTranscript(transcript),
+    '',
+    'Your response must:',
+    ...artifactGuard,
+    '- State which tool(s) you used, or say "No tool needed" with a reason.',
+    '- Summarize evidence that changes the Council decision.',
+    '- Name at least one claim from another participant that your evidence supports or weakens.',
+    '- List any blocker that must be resolved before consensus can reach 85%.',
+  ].join('\n');
+}
+
+function _buildCouncilConvergencePrompt(baseMsg, modelIdx, turn, order, round, previousConsensus, transcript) {
+  const name = _councilParticipantName(modelIdx);
+  const role = _councilRoleName(modelIdx);
+  const stage = _councilStageFromTask(baseMsg);
+  const priorNames = order.slice(0, turn).map(_councilParticipantName).join(', ') || 'no one yet';
+  const artifactGuard = _councilInterimArtifactGuard(stage);
+  const priorLine = previousConsensus
+    ? `Previous consensus: average ${previousConsensus.average}%, minimum ${previousConsensus.minimum}%, blockers: ${previousConsensus.blockers.join('; ') || 'none'}.`
+    : 'No previous consensus vote yet.';
+  return [
+    baseMsg,
+    '',
+    `[COUNCIL_PHASE:${round === 1 ? 'critique' : 'revision'}]`,
+    `${name}, act primarily as ${role}. You are in convergence round ${round} for the ${stage} stage.`,
+    `Participants before you in this pass: ${priorNames}.`,
+    priorLine,
+    'Read the named Council messages already in this session and the compact transcript below.',
+    _compactCouncilTranscript(transcript),
+    '',
+    'Your response must:',
+    ...artifactGuard,
+    '- Name at least one participant you agree with and why.',
+    '- Name at least one participant you challenge, refine, or constrain.',
+    '- Resolve or narrow one disagreement instead of merely restating it.',
+    '- Identify any remaining blockers and the exact change needed to clear them.',
+    '- End with what would make you vote at least 85% ready.',
+    '- Do not create the final Idea Loop artifact yet.',
+  ].join('\n');
+}
+
+function _buildCouncilConsensusPrompt(baseMsg, modelIdx, turn, order, round, transcript) {
+  const name = _councilParticipantName(modelIdx);
+  const role = _councilRoleName(modelIdx);
+  const stage = _councilStageFromTask(baseMsg);
+  const priorNames = order.slice(0, turn).map(_councilParticipantName).join(', ') || 'no one yet';
+  return [
+    baseMsg,
+    '',
+    '[COUNCIL_PHASE:consensus]',
+    `${name}, act primarily as ${role}. You are voting on whether the Council is ready to advance the ${stage} stage.`,
+    `Participants before you in this vote pass: ${priorNames}.`,
+    `Consensus target: average ${COUNCIL_CONSENSUS_TARGET}% or higher, every agent at least ${COUNCIL_MIN_AGENT_CONSENSUS}%, and no critical blocker.`,
+    'Use the compact transcript below as evidence. Do not use tools in this vote. Do not include code.',
+    _compactCouncilTranscript(transcript),
+    '',
+    'Respond in exactly this line-oriented format:',
+    'CONSENSUS_SCORE: <integer 0-100>',
+    'BLOCKER: <yes|no>',
+    'BLOCKERS: <none or one sentence>',
+    'RATIONALE: <one sentence>',
+    'NEXT_REVISION: <none or one concrete change needed>',
+  ].join('\n');
+}
+
+function _compactCouncilTranscript(transcript, maxChars = 5200) {
+  const text = String(transcript || '').trim();
+  if (!text) return '[No prior transcript captured]';
+  if (text.length <= maxChars) return text;
+  const head = text.slice(0, Math.floor(maxChars * 0.55));
+  const tail = text.slice(-Math.floor(maxChars * 0.35));
+  return `${head}\n\n[...middle of transcript omitted for compactness...]\n\n${tail}`;
+}
+
+function _compactCouncilTurn(raw, phase) {
+  const limits = {
+    evidence: 2200,
+    synthesis: 4200,
+    position: 1800,
+    critique: 1800,
+    revision: 1800,
+    consensus: 700,
+  };
+  return _compactCouncilTranscript(raw, limits[phase] || 1600);
+}
+
+function _buildCouncilSynthesisPrompt(baseMsg, transcript, buildPaths = null) {
+  const stage = _councilStageFromTask(baseMsg);
+  const stageContract = {
+    ideas: 'Produce several implementation ideas for user approval across the actual target delivery type, with architecture, research needs, risks, and clear recommendation criteria. Do not include a runnable build yet.',
+    sketch: 'Produce an executable prototype sketch for the intended delivery type, not only a webpage. Include exactly one complete runnable HTML preview harness in a fenced html block for Idea Loop only; it must include a root element with data-odysseus-project-sketch="1" and meaningful interactive controls. Outside that preview, include the real target package shape: project type, repository/file tree, primary components/files, APIs/commands/services/data model, local run and test commands, validation plan, and open questions.',
+    final: 'Produce the final product package for the intended delivery type, not only a webpage. Include exactly one complete runnable HTML review harness in a fenced html block for Idea Loop only; it must include a root element with data-odysseus-project-review="1" and meaningful interactive controls. The review harness must use the actual product/app name, domain data, workflow labels, file/package evidence, and validation status; never use generic titles like "Council Collaboration Review Build", "Full-Stack Product", or "Project Review Build" unless that is literally the requested product. Outside that preview, include the real target package: repository/file tree, key source files created, APIs/schemas/commands/services/data model, local run and test commands, QA evidence, documentation, deployment notes, and knowledge storage notes.',
+  }[stage] || 'Produce the requested Council artifact.';
+  const finalBuildRequirements = stage === 'final'
+    ? [
+      '',
+      'Phase 3 real app build requirements:',
+      `- Build the actual app package under: ${buildPaths?.container || '/app/data/council-builds/[project]'}`,
+      `- Host-visible path for the user: ${buildPaths?.host || 'data/council-builds/[project]'}`,
+      '- Use available build tools (`write_file`, `read_file`, `bash`, `python`) to create real files. Keep every write inside that build directory.',
+      '- Minimum required files: README.md, a runnable entrypoint, source modules, dependency/config file, and at least one test or smoke-check script.',
+      '- Match the requested target: websites should be runnable browser apps; APIs should include server routes and contract examples; CLIs should include commands and executable entrypoint; agents should include tool policy/eval harness; games should include playable loop; automation should include trigger/action pipeline.',
+      '- Run at least one local validation command after writing files, such as syntax check, unit test, smoke script, or static server check. Include the exact command and result.',
+      '- If a platform-specific binary build is impossible in this environment, still create the real source project and local runnable substitute, then mark the missing external build step as a blocker. Do not call a spec-only response a final product.',
+    ]
+    : [];
+  return [
+    baseMsg,
+    '',
+    '[COUNCIL_PHASE:synthesis]',
+    'You are synthesizing on behalf of the Council. This is the only response that may be pushed to Idea Loop.',
+    'Use the transcript below as source material, and make the final artifact read like a team decision record rather than a solo answer.',
+    '',
+    'Council transcript:',
+    transcript || '[No prior transcript captured]',
+    '',
+    'Synthesis requirements:',
+    '- Include a "Council deliberation" section with named agreements, disagreements, tradeoffs, rejected options, and the final rationale.',
+    '- Include a "Research and evidence plan" section naming tools, sources, tests, browser checks, Docker checks, and failure handling where useful.',
+    '- Include a "Collaborative contribution map" showing what each participant contributed to the final artifact.',
+    `- Stage contract: ${stageContract}`,
+    ...finalBuildRequirements,
+    '- Preserve the full Council lifecycle gates and state the next user approval gate clearly.',
+  ].join('\n');
+}
+
+function _buildCouncilTranscript(holders) {
+  return holders
+    .map((holder, idx) => {
+      const roleEl = holder.querySelector('.role');
+      const name = holder.dataset.participantName || (roleEl?.textContent || `Participant ${idx + 1}`).replace(/\s+\d{1,2}:\d{2}\s*$/, '').trim();
+      const phase = holder.dataset.councilPhase || 'response';
+      const tools = _councilToolsSummary(holder);
+      const raw = _compactCouncilTurn((holder.dataset.raw || '').trim(), phase);
+      if (!raw) return '';
+      return `### ${name} (${phase})\n${tools ? `Tools used: ${tools}\n` : ''}${raw}`;
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function _councilToolsSummary(holder) {
+  try {
+    const events = JSON.parse(holder?.dataset?.councilTools || '[]');
+    const names = [...new Set(events.map((event) => event.tool).filter(Boolean))];
+    return names.join(', ');
+  } catch (_) {
+    return '';
+  }
+}
+
+function _parseCouncilConsensusVote(holder) {
+  const raw = String(holder?.dataset?.raw || '');
+  const roleEl = holder?.querySelector?.('.role');
+  const name = holder?.dataset?.participantName || (roleEl?.textContent || 'Participant').replace(/\s+\d{1,2}:\d{2}\s*$/, '').trim();
+  const scoreMatch =
+    raw.match(/CONSENSUS_SCORE\s*[:=]\s*(\d{1,3})/i) ||
+    raw.match(/"?(?:score|consensus_score)"?\s*[:=]\s*(\d{1,3})/i) ||
+    raw.match(/\b(\d{1,3})\s*%\b/);
+  const score = Math.max(0, Math.min(100, Number(scoreMatch?.[1] || 0)));
+  const blockerMatch = raw.match(/^\s*BLOCKER\s*[:=]\s*(yes|no|true|false)\s*$/im);
+  const blockersLine = raw.match(/^\s*BLOCKERS\s*[:=]\s*([^\n]+)\s*$/im)?.[1]?.trim() || '';
+  const hasNamedBlockers = Boolean(blockersLine && !/^(none|no|n\/a|not applicable)$/i.test(blockersLine));
+  const blocker = blockerMatch ? /yes|true/i.test(blockerMatch[1]) : hasNamedBlockers;
+  return {
+    name,
+    score,
+    blocker,
+    blockers: blockersLine && !/^none$/i.test(blockersLine) ? blockersLine : '',
+    rationale: raw.match(/RATIONALE\s*[:=]\s*([^\n]+)/i)?.[1]?.trim() || '',
+  };
+}
+
+function _summarizeCouncilConsensus(voteHolders) {
+  const votes = voteHolders.map(_parseCouncilConsensusVote);
+  const scores = votes.map((vote) => vote.score);
+  const average = scores.length
+    ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
+    : 0;
+  const minimum = scores.length ? Math.min(...scores) : 0;
+  const blockers = votes
+    .filter((vote) => vote.blocker || vote.blockers)
+    .map((vote) => `${vote.name}: ${vote.blockers || 'blocker reported'}`);
+  const reached = average >= COUNCIL_CONSENSUS_TARGET
+    && minimum >= COUNCIL_MIN_AGENT_CONSENSUS
+    && blockers.length === 0;
+  return {
+    target: COUNCIL_CONSENSUS_TARGET,
+    minimumTarget: COUNCIL_MIN_AGENT_CONSENSUS,
+    average,
+    minimum,
+    blockers,
+    votes,
+    reached,
+  };
+}
+
+async function _syncCouncilConsensusToSessions(consensus, round) {
+  const summary = [
+    `[Council consensus ${round}]`,
+    `Average: ${consensus.average}%`,
+    `Minimum: ${consensus.minimum}%`,
+    `Reached: ${consensus.reached ? 'yes' : 'no'}`,
+    `Blockers: ${consensus.blockers.join('; ') || 'none'}`,
+  ].join('\n');
+  for (let j = 0; j < _participantSessions.length; j++) {
+    if (!_participantSessions[j]) continue;
+    try {
+      await fetch(`${API_BASE}/api/session/${_participantSessions[j]}/inject_messages`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'user', content: summary }]}),
+      });
+    } catch (e) {
+      console.warn('[group] consensus sync failed:', e);
     }
   }
 }
 
-async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl) {
+function _cleanCouncilTask(task) {
+  return String(task || '')
+    .replace(/\[ODYSSEUS_WORKSPACE_STAGE:[^\]]+\]\s*/gi, '')
+    .replace(/\[ODYSSEUS_SOURCE_KIND:[^\]]+\]\s*/gi, '')
+    .replace(/\[ODYSSEUS_SOURCE_ID:[^\]]+\]\s*/gi, '')
+    .trim();
+}
+
+function _slugifyCouncilValue(value, fallback = 'council-app') {
+  const slug = String(value || fallback)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+  return slug || fallback;
+}
+
+function _councilBuildPaths(task) {
+  const source = _councilSourceFromTask(task);
+  const title = _ideaTitleFromTask(task);
+  const idPart = source.id ? source.id.slice(0, 8) : String(Date.now()).slice(-8);
+  const slug = `${_slugifyCouncilValue(title)}-${_slugifyCouncilValue(idPart, 'build')}`.slice(0, 84);
+  return {
+    slug,
+    container: `/app/data/council-builds/${slug}`,
+    host: `data/council-builds/${slug}`,
+  };
+}
+
+function _councilStageFromTask(task) {
+  const marker = String(task || '').match(/\[ODYSSEUS_WORKSPACE_STAGE:(ideas|sketch|final)\]/i);
+  if (marker) return marker[1].toLowerCase();
+  return 'ideas';
+}
+
+function _councilSourceFromTask(task) {
+  const text = String(task || '');
+  const kind = text.match(/\[ODYSSEUS_SOURCE_KIND:([^\]]+)\]/i)?.[1] || '';
+  const id = text.match(/\[ODYSSEUS_SOURCE_ID:([^\]]+)\]/i)?.[1] || '';
+  return { kind, id };
+}
+
+function _hasCouncilStageMarker(task) {
+  return /\[ODYSSEUS_WORKSPACE_STAGE:(ideas|sketch|final)\]/i.test(String(task || ''));
+}
+
+function _isCouncilWorkflowMessage(task) {
+  return document.body.classList.contains('council-mode-active') || _hasCouncilStageMarker(task);
+}
+
+function _withCouncilProtocol(task) {
+  const text = String(task || '');
+  if (/\[ODYSSEUS_COUNCIL_PROTOCOL:deliberative\]/i.test(text)) return text;
+  const stage = _councilStageFromTask(text);
+  const stageGoal = {
+    ideas: 'produce several implementation ideas for Idea Loop review',
+    sketch: 'turn the accepted idea into a runnable prototype sketch',
+    final: 'turn the accepted sketch into a locally runnable final review build with documentation',
+  }[stage] || 'advance the workspace artifact';
+  return [
+    '[ODYSSEUS_COUNCIL_PROTOCOL:deliberative]',
+    'Council operating protocol:',
+    `- Goal: ${stageGoal}.`,
+    '- Treat this as a working product-development council, not a direct one-shot answer to the user.',
+    '- Speak from useful roles when relevant: Product Strategist, Architect, UX Designer, Frontend Engineer, Backend Engineer, DevOps Engineer, QA Engineer, Research Agent, and Documentation Agent.',
+    '- Read prior participant messages in this round, explicitly agree/disagree, challenge assumptions, compare implementation paths, identify risks, and improve the artifact.',
+    '- Include a short "Council deliberation" section naming tradeoffs, research/tool needs, data assumptions, feasibility checks, QA plan, and why the chosen direction wins.',
+    '- Follow the mandatory lifecycle without skipping gates: user request, council discussion, research, ideas, user review, sketch, user review, final build, QA, docs, deployment notes, knowledge storage, completion.',
+    '- Treat every screenshot or runnable preview as a design review meeting: critique aesthetics, usability, clarity, responsiveness, accessibility, visual hierarchy, empty/error/loading states, and product polish before calling the stage complete.',
+    '- Answer the design gate: Does it look professional? Is it intuitive? Can the flow be simpler? Is hierarchy clear? Are elements unnecessary? Would a real user understand it? Does it feel production ready? What would make it feel premium?',
+    '- If local tools, APIs, files, tests, browser checks, or Docker validation are needed, state the concrete tool plan, expected evidence, and failure handling.',
+    '- Preserve universal project support: do not assume the output is only a webpage; full-stack apps, APIs, CLI tools, automation, games, extensions, and services must still pass the same lifecycle.',
+    '- Treat sandboxed HTML as the Idea Loop preview harness only. The real deliverable may be a multi-file repo, API, mobile app, desktop app, SaaS platform, CLI, game, automation, AI agent, browser extension, or service mesh.',
+    '- For non-web deliverables, include the concrete package shape: file tree, source files or patch plan, service boundaries, data contracts, run commands, test commands, deployment target, and validation evidence.',
+    '- Preserve the requested stage contract: ideas go to Idea Loop requests, sketches include a runnable prototype, finals include a runnable review build plus docs/tests/commands.',
+    '- Store meaningful knowledge in the Obsidian/workspace artifact first, then sync Brain memory second.',
+    '',
+    text,
+  ].join('\n');
+}
+
+function _ideaTitleFromTask(task) {
+  const clean = _cleanCouncilTask(task);
+  const sourceLine = clean.match(/^Source\s+(?:request|idea|council note|execution run|verification evidence):\s*(.+)$/im);
+  if (sourceLine && sourceLine[1]?.trim()) return sourceLine[1].trim().slice(0, 84);
+  const firstLine = clean.split('\n').find(Boolean) || 'Council result';
+  return firstLine
+    .replace(/^Council test task\s+\d+:\s*/i, '')
+    .replace(/^Council request:\s*/i, '')
+    .slice(0, 84) || 'Council result';
+}
+
+function _stagePushConfig(stage) {
+  if (stage === 'sketch') {
+    return {
+      kind: 'ideas',
+      titlePrefix: 'Council sketch',
+      status: 'reviewing',
+      tags: ['council', 'idea-loop', 'sketch'],
+      toast: 'Council pushed a sketch into Idea Loop',
+      gates: ['User-approved idea', 'Council discussion', 'Research', 'Executable prototype', 'Screenshot design review plan'],
+    };
+  }
+  if (stage === 'final') {
+    return {
+      kind: 'council',
+      titlePrefix: 'Council final product',
+      status: 'ready',
+      tags: ['council', 'idea-loop', 'final-product', 'review'],
+      toast: 'Council pushed a final product into Idea Loop review',
+      gates: ['User-approved sketch', 'Final review build', 'QA evidence', 'Documentation', 'Deployment notes', 'Knowledge storage'],
+    };
+  }
+  return {
+    kind: 'requests',
+    titlePrefix: 'Council idea',
+    status: 'ready',
+    tags: ['council', 'idea-loop', 'idea'],
+    toast: 'Council pushed an idea into Idea Loop',
+    gates: ['Council discussion', 'Research', 'Concepts', 'Architecture', 'User approval required'],
+  };
+}
+
+function _hasHtmlArtifact(value) {
+  return /```(?:html|HTML)[ \t]*\r?\n[\s\S]*?```|<!doctype html|<html[\s>]/i.test(String(value || ''));
+}
+
+function _hasVerifiedReviewArtifact(value, task = '') {
+  const text = String(value || '');
+  const profile = _inferProjectProfile(task, '');
+  if (profile.key === 'fuel') return text.includes('data-odysseus-fuel-review="1"');
+  if (!text.includes('data-odysseus-project-review="1"')) return false;
+  const genericCouncilShell = /(Council Collaboration Review Build|New Council signal|Agent stance map|Challenge quote links|Tune team debate)/i.test(text);
+  const genericProductShell = /(Full-Stack Product Review Build|Project Review Build|New local record)/i.test(text);
+  if ((genericCouncilShell && profile.key !== 'council') || genericProductShell) return false;
+  return true;
+}
+
+function _hasVerifiedSketchArtifact(value, task = '') {
+  const text = String(value || '');
+  const profile = _inferProjectProfile(task, '');
+  if (profile.key === 'fuel') return text.includes('data-odysseus-fuel-sketch="1"');
+  return text.includes('data-odysseus-project-sketch="1"');
+}
+
+function _htmlText(value) {
+  return String(value || '').replace(/[&<>"]/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;',
+  }[ch]));
+}
+
+function _inferProjectProfile(task, response) {
+  const text = String(task || response || '').toLowerCase().slice(0, 5000);
+  if (/(consensus garden|seed idea|seed ideas|confidence meter|readiness gauge|plant to prototype|promoted ideas)/.test(text)) {
+    return { key: 'consensus', name: 'Consensus Garden', noun: 'seed ideas', action: 'Grow decisions' };
+  }
+  if (/(fuel|gas price|petrol|diesel|ev charging|charging price)/.test(text)) {
+    return { key: 'fuel', name: 'Fuel Prices', noun: 'stations', action: 'Compare prices' };
+  }
+  if (/(resilience mesh|incident command|emergency operations|cascading emergenc|ics-?209|ics-?214|ics-?210|ics-?213rr|dispatcher|logistics lead|field team|commander|resource request|offline-first incident)/.test(text)) {
+    return { key: 'incident-command', name: 'Resilience Mesh', noun: 'incidents', action: 'Coordinate response' };
+  }
+  if (/(booking|reservation|appointment|calendar|clinic|restaurant|hotel)/.test(text)) {
+    return { key: 'booking', name: 'Booking Operations', noun: 'bookings', action: 'Schedule capacity' };
+  }
+  if (/(inventory|stock|warehouse|sku|fulfillment|supply)/.test(text)) {
+    return { key: 'inventory', name: 'Inventory Control', noun: 'items', action: 'Manage stock' };
+  }
+  if (/(task|kanban|todo|project management|sprint|ticket)/.test(text)) {
+    return { key: 'tasks', name: 'Project Tracker', noun: 'tasks', action: 'Prioritize work' };
+  }
+  if (/(council collaboration|agent debate|agent council|deliberation engine|debate workflow|stance map|idea loop council)/.test(text)) {
+    return { key: 'council', name: 'Council Collaboration', noun: 'signals', action: 'Tune team debate' };
+  }
+  return { key: 'generic', name: 'Full-Stack Product', noun: 'records', action: 'Operate workflow' };
+}
+
+function _inferDeliveryProfile(task, response) {
+  const text = String(`${task || ''}\n${response || ''}`).toLowerCase().slice(0, 7000);
+  const common = {
+    web: {
+      label: 'Web app',
+      rowsCode: 'const rows=[{name:"Responsive screen",status:"Ready",priority:1,owner:"Frontend"},{name:"API contract",status:"Ready",priority:1,owner:"Backend"},{name:"Persistent state",status:"Open",priority:2,owner:"Data"},{name:"Browser smoke test",status:"Open",priority:2,owner:"QA"}];',
+      steps: [
+        ['1. Browser client', 'Build routed screens, forms, validation, loading states, and accessible responsive layouts.'],
+        ['2. API service', 'Expose application endpoints, validation, auth boundaries, and error contracts.'],
+        ['3. Data layer', 'Persist records, audit events, settings, and migrations.'],
+      ],
+      commands: 'npm install\nnpm run dev\nnpm test\ndocker compose up --build',
+      docs: 'Document screens, API endpoints, environment variables, persistence, browser QA, and deployment.',
+    },
+    mobile: {
+      label: 'Mobile app',
+      rowsCode: 'const rows=[{name:"Navigation map",status:"Ready",priority:1,owner:"Mobile"},{name:"Offline/cache model",status:"Open",priority:2,owner:"Data"},{name:"API adapter",status:"Ready",priority:1,owner:"Backend"},{name:"Device QA matrix",status:"Open",priority:2,owner:"QA"}];',
+      steps: [
+        ['1. Mobile shell', 'Define screens, navigation, gestures, permissions, and native capability boundaries.'],
+        ['2. Sync/API layer', 'Connect local state, cache invalidation, authentication, and backend contracts.'],
+        ['3. Device validation', 'Run simulator/device smoke tests, accessibility checks, and release build verification.'],
+      ],
+      commands: 'npm install\nnpx expo start\nnpm test\nnpx expo run:android',
+      docs: 'Document target platforms, screen map, permissions, offline behavior, API contracts, and app-store release notes.',
+    },
+    api: {
+      label: 'API service',
+      rowsCode: 'const rows=[{name:"OpenAPI schema",status:"Ready",priority:1,owner:"Backend"},{name:"Auth policy",status:"Open",priority:2,owner:"Security"},{name:"Persistence adapter",status:"Ready",priority:1,owner:"Data"},{name:"Contract tests",status:"Open",priority:2,owner:"QA"}];',
+      steps: [
+        ['1. API contract', 'Define routes, schemas, status codes, auth scopes, pagination, and error bodies.'],
+        ['2. Service logic', 'Implement handlers, validation, domain rules, storage adapters, and observability.'],
+        ['3. Contract testing', 'Run unit, integration, schema, and failure-mode tests before deployment.'],
+      ],
+      commands: 'python -m venv .venv\npip install -r requirements.txt\nuvicorn app.main:app --reload\npytest',
+      docs: 'Document OpenAPI schema, auth model, data model, rate limits, local curl examples, and deployment.',
+    },
+    desktop: {
+      label: 'Desktop app',
+      rowsCode: 'const rows=[{name:"Window shell",status:"Ready",priority:1,owner:"Desktop"},{name:"Local storage",status:"Open",priority:2,owner:"Data"},{name:"Native integrations",status:"Open",priority:2,owner:"Platform"},{name:"Installer smoke test",status:"Blocked",priority:3,owner:"QA"}];',
+      steps: [
+        ['1. App shell', 'Define windows, menus, shortcuts, file handling, and platform-specific behavior.'],
+        ['2. Core runtime', 'Connect UI state, local persistence, background jobs, and native bridges.'],
+        ['3. Packaging', 'Build signed installers, update flow, and OS-level smoke tests.'],
+      ],
+      commands: 'npm install\nnpm run dev\nnpm test\nnpm run package',
+      docs: 'Document supported OS targets, local storage, shortcuts, packaging, signing, and update behavior.',
+    },
+    agent: {
+      label: 'AI agent',
+      rowsCode: 'const rows=[{name:"Agent loop",status:"Ready",priority:1,owner:"Agent"},{name:"Tool policy",status:"Ready",priority:1,owner:"Safety"},{name:"Memory contract",status:"Open",priority:2,owner:"Data"},{name:"Eval harness",status:"Open",priority:2,owner:"QA"}];',
+      steps: [
+        ['1. Agent loop', 'Define goals, planning, tool selection, memory reads/writes, and stop conditions.'],
+        ['2. Tool boundaries', 'Whitelist tools, permissions, schemas, retries, and audit events.'],
+        ['3. Evaluation', 'Run task suites, safety checks, regression prompts, and trace review.'],
+      ],
+      commands: 'python -m venv .venv\npip install -r requirements.txt\npython -m agent.run --task demo\npytest tests/evals',
+      docs: 'Document model/provider choices, tool schemas, memory policy, safety boundaries, evals, and runbooks.',
+    },
+    saas: {
+      label: 'SaaS platform',
+      rowsCode: 'const rows=[{name:"Tenant model",status:"Ready",priority:1,owner:"Backend"},{name:"Billing/auth",status:"Open",priority:2,owner:"Platform"},{name:"Admin dashboard",status:"Ready",priority:1,owner:"Frontend"},{name:"SLO/runbook",status:"Open",priority:2,owner:"Ops"}];',
+      steps: [
+        ['1. Product surface', 'Build tenant-aware user flows, admin controls, billing states, and onboarding.'],
+        ['2. Platform services', 'Implement auth, subscriptions, background jobs, data isolation, and audit logs.'],
+        ['3. Operations', 'Add observability, migrations, backups, SLOs, and deployment automation.'],
+      ],
+      commands: 'pnpm install\npnpm dev\npnpm test\ndocker compose up --build',
+      docs: 'Document tenant boundaries, billing/auth, service topology, migrations, monitoring, and deployment.',
+    },
+    cli: {
+      label: 'CLI tool',
+      rowsCode: 'const rows=[{name:"Command grammar",status:"Ready",priority:1,owner:"CLI"},{name:"Config file",status:"Open",priority:2,owner:"DX"},{name:"Exit codes",status:"Ready",priority:1,owner:"QA"},{name:"Install package",status:"Open",priority:2,owner:"Release"}];',
+      steps: [
+        ['1. Command interface', 'Define commands, flags, prompts, stdin/stdout behavior, and exit codes.'],
+        ['2. Runtime modules', 'Implement parsers, config, filesystem/network adapters, and dry-run behavior.'],
+        ['3. Distribution', 'Package binaries, shell completions, docs, and regression tests.'],
+      ],
+      commands: 'python -m pip install -e .\nmytool --help\npytest\npython -m build',
+      docs: 'Document commands, flags, config, examples, exit codes, packaging, and troubleshooting.',
+    },
+    game: {
+      label: 'Game',
+      rowsCode: 'const rows=[{name:"Core loop",status:"Ready",priority:1,owner:"Game Design"},{name:"Input system",status:"Ready",priority:1,owner:"Frontend"},{name:"Level/state model",status:"Open",priority:2,owner:"Engineering"},{name:"Playtest checklist",status:"Open",priority:2,owner:"QA"}];',
+      steps: [
+        ['1. Game loop', 'Define controls, rules, win/loss states, progression, and feedback.'],
+        ['2. Runtime systems', 'Implement rendering, physics/state, audio hooks, persistence, and accessibility options.'],
+        ['3. Playtesting', 'Run browser/device smoke tests, balance checks, and performance profiling.'],
+      ],
+      commands: 'npm install\nnpm run dev\nnpm test\nnpm run build',
+      docs: 'Document controls, rules, asset pipeline, accessibility, performance targets, and playtest results.',
+    },
+    automation: {
+      label: 'Automation system',
+      rowsCode: 'const rows=[{name:"Trigger map",status:"Ready",priority:1,owner:"Ops"},{name:"Action adapter",status:"Ready",priority:1,owner:"Integration"},{name:"Retry policy",status:"Open",priority:2,owner:"Reliability"},{name:"Audit log",status:"Open",priority:2,owner:"QA"}];',
+      steps: [
+        ['1. Trigger contract', 'Define schedules, webhooks, file watchers, events, and manual overrides.'],
+        ['2. Action pipeline', 'Implement adapters, idempotency, retries, secrets handling, and audit logs.'],
+        ['3. Operations', 'Add dry-run mode, monitoring, alerting, rollback, and failure drills.'],
+      ],
+      commands: 'python -m venv .venv\npip install -r requirements.txt\npython -m automation.run --dry-run\npytest',
+      docs: 'Document triggers, integrations, secrets, retry policy, audit trail, monitoring, and recovery.',
+    },
+    extension: {
+      label: 'Browser extension',
+      rowsCode: 'const rows=[{name:"Manifest",status:"Ready",priority:1,owner:"Extension"},{name:"Content script",status:"Ready",priority:1,owner:"Frontend"},{name:"Background worker",status:"Open",priority:2,owner:"Platform"},{name:"Store QA",status:"Open",priority:2,owner:"Release"}];',
+      steps: [
+        ['1. Extension shell', 'Define manifest permissions, content scripts, popup UI, and background worker scope.'],
+        ['2. Browser integration', 'Implement message passing, storage, host permissions, and safe DOM access.'],
+        ['3. Release checks', 'Run browser compatibility, permission review, and packaged extension tests.'],
+      ],
+      commands: 'npm install\nnpm run dev\nnpm test\nnpm run package:extension',
+      docs: 'Document manifest permissions, message contracts, storage, security review, and store submission.',
+    },
+  };
+  if (/(mobile|ios|android|react native|flutter|expo|swiftui|kotlin)/.test(text)) return common.mobile;
+  if (/(game|playable|level|score|sprite|three\.js|phaser|godot|unity)/.test(text)) return common.game;
+  if (/(cli|command line|terminal|shell command|argv|flags|subcommand)/.test(text)) return common.cli;
+  if (/(api|openapi|rest|graphql|endpoint|webhook|sdk|microservice)/.test(text)) return common.api;
+  if (/(desktop|electron|tauri|native app|windows app|macos app|linux app)/.test(text)) return common.desktop;
+  if (/(ai agent|agentic|agent loop|tool policy|memory policy|eval harness|multi-agent)/.test(text)) return common.agent;
+  if (/(saas|tenant|billing|subscription|admin dashboard|multi-tenant)/.test(text)) return common.saas;
+  if (/(automation|automate|workflow|cron|scheduler|zapier|n8n|rpa|pipeline)/.test(text)) return common.automation;
+  if (/(browser extension|chrome extension|firefox extension|manifest\.json|content script)/.test(text)) return common.extension;
+  return common.web;
+}
+
+function _fallbackConsensusArtifact(stage) {
+  const isFinal = stage === 'final';
+  const marker = `data-odysseus-project-${isFinal ? 'review' : 'sketch'}="1"`;
+  const title = isFinal ? 'Consensus Garden Review Build' : 'Consensus Garden Prototype';
+  const subtitle = isFinal
+    ? 'A local review build for turning rated seed ideas into a prototype candidate.'
+    : 'A local prototype sketch for rating seed ideas and finding the strongest direction.';
+  const docs = isFinal
+    ? '<section class="notes"><h2>Review Notes</h2><ul><li>Acceptance: add a seed, adjust confidence, promote the strongest idea, and undo promotion without refreshing.</li><li>Data: seed title, confidence, evidence note, status, and promoted timestamp are persisted when localStorage is available.</li><li>Service shape: production can map this to /seeds, /seeds/:id/confidence, /prototype-candidate, and /audit-events.</li><li>QA: test empty input, confidence extremes, multiple promoted seeds, keyboard Enter on add, mobile layout, and sandbox preview rendering.</li></ul></section>'
+    : '<section class="notes"><h2>Open Questions</h2><ul><li>Should readiness be based only on confidence, or include evidence and effort?</li><li>Can more than one seed be promoted, or should promotion create a single build candidate?</li><li>Should the meter be called consensus, conviction, or readiness in the final UI?</li></ul></section>';
+  return [
+    '<!doctype html>',
+    '<html lang="en">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<title>' + title + '</title>',
+    '<style>',
+    ':root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#17211d;background:#edf4ef}',
+    'body{margin:0;padding:22px;background:linear-gradient(135deg,#edf4ef,#f7f2e8 54%,#eef5fb)}',
+    '.garden{max-width:1120px;margin:auto;border:1px solid #cddbd1;background:#fbfdf9;border-radius:18px;overflow:hidden;box-shadow:0 18px 54px #253b2f24}',
+    'header{display:grid;grid-template-columns:1.4fr .8fr;gap:18px;padding:24px;background:#153322;color:#fff}',
+    'h1{margin:0 0 7px;font-size:30px;line-height:1.08}.sub{margin:0;color:#d8eadb;line-height:1.5}.meter{align-self:center;background:#0b2115;border:1px solid #315d41;border-radius:16px;padding:14px}.meter strong{display:block;margin-bottom:10px}.track{height:14px;border-radius:999px;background:#dfe7dc22;overflow:hidden}.bar{height:100%;width:0;background:linear-gradient(90deg,#86b76d,#e0bc5f,#6aa4bf);transition:width .24s ease}.meter span{display:block;margin-top:8px;color:#d8eadb;font-size:13px}',
+    '.composer{display:grid;grid-template-columns:minmax(160px,1.7fr) minmax(120px,.7fr) minmax(160px,1fr) auto;gap:12px;padding:16px;background:#f4f8f2;border-bottom:1px solid #dde8dd}',
+    'label{display:grid;gap:5px;font-size:12px;font-weight:800;color:#45564a}input,select,button{font:inherit;border:1px solid #bfcec2;border-radius:10px;padding:10px;background:#fff}button{background:#255c3b;color:#fff;border-color:#255c3b;font-weight:800;cursor:pointer}button.secondary{background:#fff;color:#255c3b}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px}.stat{border:1px solid #dde8dd;border-radius:14px;background:#fff;padding:14px}.stat span{display:block;color:#6a786d;font-size:12px;font-weight:800;text-transform:uppercase}.stat strong{display:block;margin-top:5px;font-size:24px;color:#255c3b}',
+    '.board{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;padding:0 16px 16px}.panel{border:1px solid #dde8dd;border-radius:14px;background:#fff;overflow:hidden}.panel h2{margin:0;padding:14px 15px;background:#f8faf6;border-bottom:1px solid #dde8dd;font-size:16px}.list{display:grid;gap:10px;padding:14px}.seed{display:grid;gap:9px;border:1px solid #e2e8de;border-radius:12px;padding:12px;background:#fff}.seed-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.seed h3{margin:0;font-size:15px}.badge{display:inline-flex;border-radius:999px;padding:4px 8px;background:#eef6ea;color:#255c3b;font-size:12px;font-weight:900}.seed p{margin:0;color:#5d6c61;font-size:13px;line-height:1.45}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{padding:8px 9px;font-size:13px}.prototype{display:grid;gap:12px;padding:14px}.candidate{border:1px solid #d8c58b;background:#fff9e8;border-radius:14px;padding:14px}.candidate h3{margin:0 0 6px}.empty{color:#6a786d;border:1px dashed #bfcec2;border-radius:12px;padding:16px;text-align:center}',
+    '.notes{margin:0 16px 16px;padding:16px;border:1px solid #d7e1dd;border-radius:14px;background:#f6f8fb}.notes h2{margin:0 0 8px;font-size:16px}.notes li{color:#53645b;line-height:1.5}',
+    '@media(max-width:880px){header,.composer,.stats,.board{grid-template-columns:1fr}.composer{gap:10px}h1{font-size:25px}}',
+    '</style>',
+    '</head>',
+    '<body>',
+    `<main class="garden" ${marker}>`,
+    '<header><div><h1>' + title + '</h1><p class="sub">' + subtitle + '</p></div><div class="meter"><strong>Garden readiness</strong><div class="track"><div id="readinessBar" class="bar"></div></div><span id="readinessText">0% ready</span></div></header>',
+    '<section class="composer">',
+    '<label>Seed idea<input id="seedText" value="Make agent debate visible"></label>',
+    '<label>Confidence<input id="confidence" type="range" min="1" max="10" value="7"></label>',
+    '<label>Evidence note<select id="evidence"><option value="Needs evidence">Needs evidence</option><option value="User pain is clear">User pain is clear</option><option value="Prototype is cheap">Prototype is cheap</option><option value="Risk is known">Risk is known</option></select></label>',
+    '<button id="addSeed" type="button">Add seed</button>',
+    '</section>',
+    '<section class="stats"><div class="stat"><span>Active seeds</span><strong id="activeCount">0</strong></div><div class="stat"><span>Promoted</span><strong id="promotedCount">0</strong></div><div class="stat"><span>Strongest</span><strong id="strongestScore">0</strong></div><div class="stat"><span>Average</span><strong id="averageScore">0</strong></div></section>',
+    '<section class="board"><div class="panel"><h2>Seed Bed</h2><div id="seeds" class="list"></div></div><div class="panel"><h2>Prototype Candidate</h2><div id="prototype" class="prototype"></div></div></section>',
+    docs,
+    '</main>',
+    '<script>',
+    'const storeKey="consensusGardenState";',
+    'function loadSeeds(){try{return JSON.parse(localStorage.getItem(storeKey)||"null")}catch(e){return null}}',
+    'function saveSeeds(){try{localStorage.setItem(storeKey,JSON.stringify(seeds))}catch(e){}}',
+    'let seeds=loadSeeds()||[{id:1,title:"Make agent debate visible",confidence:8,evidence:"User pain is clear",promoted:false},{id:2,title:"Add readiness gauge",confidence:7,evidence:"Prototype is cheap",promoted:false},{id:3,title:"Keep artifact scope tiny",confidence:6,evidence:"Risk is known",promoted:false}];',
+    'function readiness(seed){return Math.min(100,Math.round(seed.confidence*9+(seed.evidence==="Needs evidence"?0:10)+(seed.promoted?5:0)))}',
+    'function strongestSeed(){return seeds.slice().sort((a,b)=>readiness(b)-readiness(a))[0]}',
+    'function render(){const active=seeds.filter(s=>!s.promoted),promoted=seeds.filter(s=>s.promoted),best=strongestSeed(),avg=seeds.length?Math.round(seeds.reduce((n,s)=>n+readiness(s),0)/seeds.length):0;document.getElementById("readinessBar").style.width=avg+"%";document.getElementById("readinessText").textContent=avg+"% garden readiness";document.getElementById("activeCount").textContent=active.length;document.getElementById("promotedCount").textContent=promoted.length;document.getElementById("strongestScore").textContent=best?readiness(best)+"%":"0";document.getElementById("averageScore").textContent=avg+"%";document.getElementById("seeds").innerHTML=active.length?active.map(card).join(""):"<div class=\\"empty\\">Add a seed idea to start the garden.</div>";document.getElementById("prototype").innerHTML=promoted.length?promoted.map(candidate).join(""):"<div class=\\"empty\\">Promote a high-confidence seed when it is ready.</div>";saveSeeds()}',
+    'function card(seed){return `<article class="seed"><div class="seed-top"><h3>${escapeHtml(seed.title)}</h3><span class="badge">${readiness(seed)}%</span></div><p>${escapeHtml(seed.evidence)}</p><input data-action="confidence" data-id="${seed.id}" type="range" min="1" max="10" value="${seed.confidence}"><div class="actions"><button data-action="promote" data-id="${seed.id}" type="button">Promote</button><button class="secondary" data-action="boost" data-id="${seed.id}" type="button">Boost</button><button class="secondary" data-action="remove" data-id="${seed.id}" type="button">Remove</button></div></article>`}',
+    'function candidate(seed){return `<article class="candidate"><h3>${escapeHtml(seed.title)}</h3><p>${escapeHtml(seed.evidence)}</p><p><strong>${readiness(seed)}%</strong> ready for prototype review.</p><button class="secondary" data-action="undo" data-id="${seed.id}" type="button">Return to seed bed</button></article>`}',
+    'function escapeHtml(value){return String(value).replace(/[&<>"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[ch]))}',
+    'document.getElementById("addSeed").addEventListener("click",()=>{const input=document.getElementById("seedText");const title=input.value.trim();if(!title){input.focus();return}seeds.push({id:Date.now(),title,confidence:+document.getElementById("confidence").value,evidence:document.getElementById("evidence").value,promoted:false});input.value="";render()});',
+    'document.getElementById("seedText").addEventListener("keydown",event=>{if(event.key==="Enter")document.getElementById("addSeed").click()});',
+    'document.addEventListener("input",event=>{if(event.target.dataset.action==="confidence"){const seed=seeds.find(s=>s.id===+event.target.dataset.id);if(seed){seed.confidence=+event.target.value;render()}}});',
+    'document.addEventListener("click",event=>{const action=event.target.dataset.action,id=+event.target.dataset.id;if(!action)return;const seed=seeds.find(s=>s.id===id);if(action==="promote"&&seed)seed.promoted=true;if(action==="undo"&&seed)seed.promoted=false;if(action==="boost"&&seed)seed.confidence=Math.min(10,seed.confidence+1);if(action==="remove")seeds=seeds.filter(s=>s.id!==id);render()});',
+    'render();',
+    '</script>',
+    '</body></html>',
+  ].join('\n');
+}
+
+function _fallbackFuelArtifact(stage) {
+  const isFinal = stage === 'final';
+  const title = isFinal ? 'Odysseus Fuel Prices' : 'Fuel Prices Prototype';
+  const subtitle = isFinal
+    ? 'A local, single-file review build with sorting, filters, cost estimates, and documentation.'
+    : 'A local sketch showing the proposed fuel price comparison experience.';
+  const docs = isFinal
+    ? '<section class="docs"><h2>Documentation</h2><p>Use the controls to compare petrol, diesel, and EV charging options. Prices are sample data for local review; production should replace this array with trusted provider APIs and timestamped refresh metadata.</p><ul><li>Inputs: location, currency, fuel type, efficiency, trip distance, and sort order.</li><li>Calculation: estimated trip cost = distance / efficiency * unit price, with EV efficiency treated as km per kWh.</li><li>Persistence: the current filter state is saved in localStorage.</li><li>Tests: change fuel type, currency, distance, efficiency, and sort order; verify table rows and trip totals update.</li></ul></section>'
+    : '<section class="docs"><h2>Open Questions</h2><ul><li>Which regional fuel price API should be authoritative?</li><li>Should EV charging include idle fees and charging speed?</li><li>Should location be geolocation, manual search, or both?</li></ul></section>';
+  return [
+    '<!doctype html>',
+    '<html lang="en">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<title>' + title + '</title>',
+    '<style>',
+    ':root{font-family:Inter,system-ui,sans-serif;color:#18202a;background:#eef3f8}',
+    'body{margin:0;padding:24px;background:linear-gradient(135deg,#eef3f8,#f8fbf2)}',
+    '.app{max-width:1080px;margin:auto;background:#fff;border:1px solid #d7e0ea;border-radius:18px;box-shadow:0 18px 60px #1b36551f;overflow:hidden}',
+    'header{padding:24px;background:#15212f;color:#fff}h1{margin:0 0 6px;font-size:30px}.sub{opacity:.78;margin:0}',
+    '.controls{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px;padding:16px;border-bottom:1px solid #e5ebf2;background:#f8fafc}',
+    'label{display:grid;gap:5px;font-size:12px;font-weight:700;color:#465362}input,select{border:1px solid #cbd6e2;border-radius:10px;padding:10px;font:inherit;background:#fff}',
+    '.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px}.metric{border:1px solid #e2e8f0;border-radius:14px;padding:14px;background:#fbfdff}.metric strong{display:block;font-size:22px;color:#0d7c66}',
+    'table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px 16px;border-top:1px solid #edf1f5}th{font-size:12px;text-transform:uppercase;color:#667387;background:#fbfdff}td.cost{font-weight:800;color:#0d7c66}',
+    '.badge{display:inline-flex;border-radius:999px;padding:4px 9px;background:#e8f6f2;color:#0d7c66;font-weight:800;font-size:12px}',
+    '.docs{margin:16px;padding:16px;border-radius:14px;background:#f6f8fb;border:1px solid #e2e8f0}.docs h2{margin:0 0 8px;font-size:16px}.docs p,.docs li{color:#536171;line-height:1.5}',
+    '@media(max-width:860px){.controls,.summary{grid-template-columns:1fr 1fr}table{font-size:13px}}',
+    '</style>',
+    '</head>',
+    '<body>',
+    `<main class="app" data-odysseus-fuel-${isFinal ? 'review' : 'sketch'}="1">`,
+    '<header><h1>' + title + '</h1><p class="sub">' + subtitle + '</p></header>',
+    '<section class="controls">',
+    '<label>Location<input id="loc" value="Manchester"></label>',
+    '<label>Fuel<select id="fuel"><option>All</option><option>Petrol</option><option>Diesel</option><option>EV</option></select></label>',
+    '<label>Currency<select id="currency"><option value="GBP">GBP</option><option value="EUR">EUR</option><option value="USD">USD</option></select></label>',
+    '<label>Trip km<input id="distance" type="number" min="1" value="120"></label>',
+    '<label>Efficiency<input id="efficiency" type="number" min="1" value="16"></label>',
+    '<label>Sort<select id="sort"><option value="cost">Trip cost</option><option value="price">Unit price</option><option value="distance">Distance</option></select></label>',
+    '</section>',
+    '<section class="summary"><div class="metric">Best option<strong id="best">-</strong></div><div class="metric">Average unit price<strong id="avg">-</strong></div><div class="metric">Rows shown<strong id="shown">-</strong></div></section>',
+    '<table><thead><tr><th>Provider</th><th>Type</th><th>Unit price</th><th>Distance</th><th>Trip estimate</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table>',
+    docs,
+    '</main>',
+    '<script>',
+    'const data=[{name:"Northgate Energy",type:"Petrol",price:1.47,km:2.4,status:"live"},{name:"River Road Fuels",type:"Diesel",price:1.56,km:4.2,status:"live"},{name:"VoltHub Central",type:"EV",price:.42,km:1.8,status:"rapid"},{name:"Market Street Pumps",type:"Petrol",price:1.44,km:6.1,status:"stale 12m"},{name:"GreenCharge Park",type:"EV",price:.36,km:7.5,status:"standard"}];',
+    'const rates={GBP:1,EUR:1.17,USD:1.27};const sym={GBP:"GBP ",EUR:"EUR ",USD:"$"};',
+    'const els=["loc","fuel","currency","distance","efficiency","sort"].reduce((a,id)=>(a[id]=document.getElementById(id),a),{});',
+    'function calc(row){const d=+els.distance.value||1,e=+els.efficiency.value||1;return row.type==="EV"?(d/e)*row.price:(d/e)*row.price;}',
+    'function render(){try{localStorage.fuelPriceState=JSON.stringify(Object.fromEntries(Object.entries(els).map(([k,e])=>[k,e.value])))}catch(e){}let rows=data.filter(r=>els.fuel.value==="All"||r.type===els.fuel.value);rows.sort((a,b)=>els.sort.value==="price"?a.price-b.price:els.sort.value==="distance"?a.km-b.km:calc(a)-calc(b));const rate=rates[els.currency.value],s=sym[els.currency.value];document.getElementById("rows").innerHTML=rows.map(r=>`<tr><td>${r.name}</td><td><span class="badge">${r.type}</span></td><td>${s}${(r.price*rate).toFixed(2)}</td><td>${r.km.toFixed(1)} km</td><td class="cost">${s}${(calc(r)*rate).toFixed(2)}</td><td>${r.status}</td></tr>`).join("");document.getElementById("best").textContent=rows[0]?rows[0].name:"-";document.getElementById("avg").textContent=rows.length?s+(rows.reduce((n,r)=>n+r.price,0)/rows.length*rate).toFixed(2):"-";document.getElementById("shown").textContent=rows.length;}',
+    'try{const saved=JSON.parse(localStorage.fuelPriceState||"{}");Object.entries(saved).forEach(([k,v])=>{if(els[k])els[k].value=v})}catch(e){}Object.values(els).forEach(e=>e.addEventListener("input",render));Object.values(els).forEach(e=>e.addEventListener("change",render));render();',
+    '</script>',
+    '</body></html>',
+  ].join('\n');
+}
+
+function _fallbackProjectArtifact(stage, task, response) {
+  const profile = _inferProjectProfile(task, response);
+  if (profile.key === 'consensus') return _fallbackConsensusArtifact(stage);
+  if (profile.key === 'fuel') return _fallbackFuelArtifact(stage);
+  const delivery = _inferDeliveryProfile(task, response);
+  const isFinal = stage === 'final';
+  const marker = isFinal ? 'data-odysseus-project-review="1"' : 'data-odysseus-project-sketch="1"';
+  const title = isFinal ? `${profile.name} Review Build` : `${profile.name} Prototype`;
+  const subtitle = isFinal
+    ? `A local ${delivery.label.toLowerCase()} review harness with package shape, contracts, docs, and acceptance checks.`
+    : `A local ${delivery.label.toLowerCase()} sketch that previews workflow, state, contracts, and implementation path.`;
+  const request = _htmlText(_cleanCouncilTask(task).slice(0, 520) || title);
+  const addLabel = profile.key === 'consensus' ? 'Add seed' : (profile.key === 'council' ? 'Add stance' : 'Add sample');
+  const sampleRows = profile.key === 'consensus'
+    ? 'const rows=[{name:"Sample seed: tighten onboarding",status:"Ready",priority:1,owner:"Strategy"},{name:"Add confidence slider",status:"Ready",priority:1,owner:"UX"},{name:"Promoted idea undo timer",status:"Open",priority:2,owner:"Frontend"},{name:"Evidence summary notes",status:"Blocked",priority:3,owner:"Research"}];'
+    : (profile.key === 'incident-command'
+      ? 'const rows=[{name:"Canyon Fire active incident",status:"Ready",priority:1,owner:"Commander"},{name:"Shelter generator request",status:"Open",priority:1,owner:"Logistics"},{name:"Engine 71 out of service",status:"Blocked",priority:2,owner:"Dispatcher"},{name:"North bridge field report",status:"Ready",priority:2,owner:"Field Team"}];'
+    : (profile.key === 'council'
+      ? 'const rows=[{name:"Agent stance map",status:"Ready",priority:1,owner:"Agent 1"},{name:"Challenge quote links",status:"Open",priority:2,owner:"Agent 2"},{name:"Consensus meter",status:"Ready",priority:1,owner:"Synthesis"},{name:"Evidence gaps",status:"Blocked",priority:3,owner:"Research"}];'
+      : delivery.rowsCode));
+  const newRecordPrefix = profile.key === 'consensus' ? 'New seed idea ' : (profile.key === 'council' ? 'New Council signal ' : (profile.key === 'incident-command' ? 'New incident signal ' : 'New local record '));
+  const flowSteps = delivery.steps
+    .map(([name, detail]) => `<div class="step"><strong>${_htmlText(name)}</strong><span>${_htmlText(detail)}</span></div>`)
+    .join('');
+  const docs = isFinal
+    ? '<section class="docs"><h2>Documentation</h2><ul><li>Target deliverable: ' + _htmlText(delivery.label) + '. The HTML here is only the Idea Loop review harness.</li><li>' + _htmlText(delivery.docs) + '</li><li>Package output: include repository/file tree, key source files or patches, contracts, storage/migration notes, environment variables, tests, and run commands in the Council response.</li><li>Tests: validate the preview controls plus the real project commands, service contracts, failure handling, and deployment path.</li></ul></section>'
+    : '<section class="docs"><h2>Open Questions</h2><ul><li>Which target runtime, framework, or platform should be authoritative?</li><li>Which files, services, APIs, commands, or integrations are required for the real deliverable?</li><li>Which events, logs, permissions, or data migrations must be audited before release?</li></ul></section>';
+  return [
+    '<!doctype html>',
+    '<html lang="en">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<title>' + _htmlText(title) + '</title>',
+    '<style>',
+    ':root{font-family:Inter,system-ui,sans-serif;color:#18202a;background:#eef3f8}',
+    'body{margin:0;padding:24px;background:#eef3f8}',
+    '.app{max-width:1120px;margin:auto;background:#fff;border:1px solid #d7e0ea;border-radius:16px;box-shadow:0 18px 60px #1b36551f;overflow:hidden}',
+    'header{padding:24px;background:#15212f;color:#fff}h1{margin:0 0 6px;font-size:28px}.sub{opacity:.82;margin:0}.request{margin-top:12px;padding:10px;border-radius:10px;background:#ffffff1a;font-size:13px;line-height:1.45}',
+    '.toolbar{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:12px;padding:16px;border-bottom:1px solid #e5ebf2;background:#f8fafc}',
+    'input,select,button{border:1px solid #cbd6e2;border-radius:10px;padding:10px;font:inherit;background:#fff}button{background:#0d7c66;color:#fff;border-color:#0d7c66;font-weight:800;cursor:pointer}',
+    '.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px}.metric{border:1px solid #e2e8f0;border-radius:14px;padding:14px;background:#fbfdff}.metric strong{display:block;font-size:22px;color:#0d7c66}',
+    '.layout{display:grid;grid-template-columns:1.1fr .9fr;gap:16px;padding:0 16px 16px}.panel{border:1px solid #e2e8f0;border-radius:14px;overflow:hidden}.panel h2{margin:0;padding:13px 15px;border-bottom:1px solid #e2e8f0;font-size:16px;background:#fbfdff}',
+    'table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:11px 14px;border-top:1px solid #edf1f5}th{font-size:12px;text-transform:uppercase;color:#667387;background:#fbfdff}.status{display:inline-flex;border-radius:999px;padding:4px 8px;background:#e8f6f2;color:#0d7c66;font-weight:800;font-size:12px}',
+    '.flow{display:grid;gap:10px;padding:14px}.step{border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#fff}.step strong{display:block;margin-bottom:4px}.code{font-family:ui-monospace,Consolas,monospace;background:#111827;color:#d7f9ee;border-radius:12px;padding:12px;overflow:auto;font-size:12px}',
+    '.docs{margin:0 16px 16px;padding:16px;border-radius:14px;background:#f6f8fb;border:1px solid #e2e8f0}.docs h2{margin:0 0 8px;font-size:16px}.docs li{color:#536171;line-height:1.5}',
+    '@media(max-width:880px){.toolbar,.summary,.layout{grid-template-columns:1fr}.summary{gap:8px}}',
+    '</style>',
+    '</head>',
+    '<body>',
+    `<main class="app" ${marker}>`,
+    '<header><h1>' + _htmlText(title) + '</h1><p class="sub">' + _htmlText(subtitle) + '</p><div class="request">' + request + '</div></header>',
+    '<section class="toolbar"><input id="search" placeholder="Search ' + _htmlText(profile.noun) + '"><select id="status"><option>All</option><option>Open</option><option>Ready</option><option>Blocked</option></select><select id="sort"><option value="priority">Priority</option><option value="updated">Updated</option></select><button id="add">' + _htmlText(addLabel) + '</button></section>',
+    '<section class="summary"><div class="metric">Visible<strong id="visible">-</strong></div><div class="metric">Ready<strong id="ready">-</strong></div><div class="metric">Blocked<strong id="blocked">-</strong></div><div class="metric">API status<strong id="api">local</strong></div></section>',
+    '<section class="layout"><div class="panel"><h2>' + _htmlText(profile.action) + '</h2><table><thead><tr><th>Name</th><th>Status</th><th>Priority</th><th>Owner</th></tr></thead><tbody id="rows"></tbody></table></div><div class="panel"><h2>' + _htmlText(delivery.label) + ' package flow</h2><div class="flow">' + flowSteps + '<pre class="code">' + _htmlText(delivery.commands) + '</pre></div></div></section>',
+    docs,
+    '<script>',
+    sampleRows,
+    'const els={search:document.getElementById("search"),status:document.getElementById("status"),sort:document.getElementById("sort"),rows:document.getElementById("rows")};',
+    'function render(){let out=rows.filter(r=>(els.status.value==="All"||r.status===els.status.value)&&r.name.toLowerCase().includes(els.search.value.toLowerCase()));out.sort((a,b)=>els.sort.value==="priority"?a.priority-b.priority:a.name.localeCompare(b.name));els.rows.innerHTML=out.map(r=>`<tr><td>${r.name}</td><td><span class="status">${r.status}</span></td><td>P${r.priority}</td><td>${r.owner}</td></tr>`).join("");document.getElementById("visible").textContent=out.length;document.getElementById("ready").textContent=out.filter(r=>r.status==="Ready").length;document.getElementById("blocked").textContent=out.filter(r=>r.status==="Blocked").length;}',
+    'document.getElementById("add").addEventListener("click",()=>{rows.push({name:"' + _htmlText(newRecordPrefix) + '"+(rows.length+1),status:"Open",priority:2,owner:"User"});render()});Object.values(els).forEach(e=>e.addEventListener("input",render));Object.values(els).forEach(e=>e.addEventListener("change",render));render();',
+    '</script>',
+    '</body></html>',
+  ].join('\n');
+}
+
+function _ensureStageArtifact(response, stage, task = '') {
+  if (stage !== 'sketch' && stage !== 'final') return response;
+  if (stage === 'sketch' && _hasVerifiedSketchArtifact(response, task)) return response;
+  if (stage === 'final' && _hasVerifiedReviewArtifact(response, task)) return response;
+  const label = stage === 'final' ? 'Local final product fallback' : 'Local prototype fallback';
+  const reason = stage === 'final'
+    ? 'the Council response did not include a verified runnable project marker, so Odysseus attached a local single-file review build for this project type.'
+    : 'the Council response did not include a runnable HTML block, so Odysseus attached a local single-file prototype artifact for review.';
+  return [
+    response,
+    '',
+    `${label}: ${reason}`,
+    '',
+    '```html',
+    _fallbackProjectArtifact(stage, task, response),
+    '```',
+  ].join('\n');
+}
+
+async function _rememberCouncilArtifact(config, title, stage, item) {
+  const memoryText = [
+    `Idea Loop ${stage} artifact created: ${config.titlePrefix}: ${title}`,
+    `Workspace item: ${item?.id || 'unknown'}`,
+    `Tags: ${config.tags.join(', ')}`,
+  ].join('\n');
+  try {
+    await fetch(`${API_BASE}/api/memory/add`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: memoryText,
+        category: 'workspace',
+        source: 'council',
+        session_id: _parentSessionId || undefined,
+      }),
+    });
+  } catch (e) {
+    console.warn('[group] Council artifact memory sync failed:', e);
+  }
+}
+
+async function _pushCouncilIdea(task, holder, modelIdx) {
+  if (!document.body.classList.contains('council-mode-active') && !_hasCouncilStageMarker(task)) return;
+  if (holder?.dataset?.ideaLoopPushed === '1') return;
+
+  const response = _ensureStageArtifact((holder?.dataset?.raw || '').trim(), _councilStageFromTask(task), task);
+  if (!response) return;
+  holder.dataset.ideaLoopPushed = '1';
+
+  const stage = _councilStageFromTask(task);
+  const source = _councilSourceFromTask(task);
+  const config = _stagePushConfig(stage);
+  const buildPaths = stage === 'final' ? _councilBuildPaths(task) : null;
+  const modelName = _models[modelIdx]?._groupName || _models[modelIdx]?.display || `Agent ${modelIdx + 1}`;
+  const title = _ideaTitleFromTask(task);
+  const transcript = (holder?.dataset?.councilTranscript || '').trim();
+  const transcriptBlock = transcript
+    ? ['Council collaboration transcript:', transcript, ''].join('\n')
+    : '';
+  try {
+    const res = await fetch(`${API_BASE}/api/workspace/${config.kind}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: `${config.titlePrefix}: ${title}`,
+        body: [
+          `Council task: ${_cleanCouncilTask(task)}`,
+          '',
+          transcriptBlock,
+          `${modelName} consensus synthesis:`,
+          response,
+        ].join('\n').trim(),
+        status: config.status,
+        source: 'council',
+        tags: config.tags,
+        evidence: [
+          `Lifecycle stage: ${stage}.`,
+          `Required gates: ${(config.gates || []).join(', ')}.`,
+          buildPaths ? `Final app package path: ${buildPaths.host} (container: ${buildPaths.container}).` : '',
+          transcript ? 'Collaboration evidence: position round, critique round, and final synthesis transcript captured in this artifact.' : '',
+          'Knowledge sync: Obsidian/workspace artifact created as source of truth before Brain memory sync.',
+        ].filter(Boolean).join('\n'),
+        links: {
+          session_id: _parentSessionId,
+          model: _models[modelIdx]?.mid,
+          stage,
+          build_dir: buildPaths?.host,
+          build_dir_container: buildPaths?.container,
+          source_kind: source.kind,
+          source_id: source.id,
+        },
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const item = await res.json().catch(() => null);
+    _rememberCouncilArtifact(config, title, stage, item);
+    if (window.workspaceModule?.refreshAndOpenIdeaLoop) await window.workspaceModule.refreshAndOpenIdeaLoop();
+    else if (window.workspaceModule?.openIdeaLoop && !document.getElementById('idea-loop-modal')) window.workspaceModule.openIdeaLoop();
+    uiModule.showToast?.(config.toast);
+  } catch (e) {
+    holder.dataset.ideaLoopPushed = '0';
+    console.warn('[group] Failed to push Council idea:', e);
+    uiModule.showError?.('Council finished, but Idea Loop push failed');
+  }
+}
+
+async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl, options = {}) {
   if (!sessionId) {
     holderEl.querySelector('.body').innerHTML = '<i style="opacity:0.5;">[Session creation failed]</i>';
     return;
@@ -781,10 +1852,16 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl) {
   const fd = new FormData();
   fd.append('message', msg);
   fd.append('session', sessionId);
+  fd.append('mode', options.mode || 'chat');
+  if (options.councilMode) fd.append('council_mode', 'true');
+  if (options.allowWebSearch) fd.append('allow_web_search', 'true');
+  if (options.allowBash) fd.append('allow_bash', 'true');
+  if (options.councilToolScope) fd.append('council_tool_scope', options.councilToolScope);
 
   let accumulated = '';
   let _buffer = '';
   let _firstToken = true;
+  const toolEvents = [];
   const bodyEl = holderEl.querySelector('.body');
 
   try {
@@ -794,6 +1871,10 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl) {
       credentials: 'same-origin',
       signal: abortCtrl.signal,
     });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status}${errText ? `: ${errText.slice(0, 240)}` : ''}`);
+    }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
 
@@ -840,13 +1921,21 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl) {
           }
           // Agent tool events
           else if (json.type === 'tool_start') {
+            toolEvents.push({ tool: json.tool || 'tool', command: json.command || '' });
+            holderEl.dataset.councilTools = JSON.stringify(toolEvents);
             const toolDiv = document.createElement('div');
             toolDiv.className = 'agent-tool-event';
             toolDiv.style.cssText = 'font-size:11px;opacity:0.5;padding:2px 0;font-family:monospace;';
-            toolDiv.textContent = `⚙ ${json.tool || 'tool'}${json.command ? ': ' + json.command.substring(0, 60) : ''}`;
+            toolDiv.textContent = `[tool] ${json.tool || 'tool'}${json.command ? ': ' + json.command.substring(0, 60) : ''}`;
             bodyEl.appendChild(toolDiv);
           }
           else if (json.type === 'tool_output') {
+            const last = toolEvents[toolEvents.length - 1];
+            if (last) {
+              last.output = String(json.output || '').substring(0, 200);
+              if (json.exit_code !== undefined) last.exitCode = json.exit_code;
+              holderEl.dataset.councilTools = JSON.stringify(toolEvents);
+            }
             const outDiv = document.createElement('div');
             outDiv.className = 'agent-tool-output';
             outDiv.style.cssText = 'font-size:10px;opacity:0.4;padding:2px 0;font-family:monospace;max-height:60px;overflow:hidden;';
@@ -874,7 +1963,24 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl) {
   } catch (e) {
     if (e.name === 'AbortError') return;
     console.error('[group] Stream error:', e);
-    bodyEl.innerHTML += '<div style="color:var(--color-error);font-style:italic;">[Stream error]</div>';
+    accumulated = `[Stream error: ${e.message || e}]`;
+    holderEl.dataset.streamError = '1';
+    bodyEl.innerHTML = `<div style="color:var(--color-error);font-style:italic;">${uiModule.esc(accumulated)}</div>`;
+  }
+
+  if (!accumulated && options.councilMode && options.pushTask && /synthesis/i.test(String(options.phase || ''))) {
+    const stage = _councilStageFromTask(options.pushTask || msg);
+    if (stage === 'sketch' || stage === 'final') {
+      const fallbackReason = stage === 'final'
+        ? 'The upstream synthesis stream returned no visible text, so Odysseus generated a local final review fallback from the Council handoff.'
+        : 'The upstream synthesis stream returned no visible text, so Odysseus generated a local prototype fallback from the Council handoff.';
+      accumulated = [
+        '## Council synthesis fallback',
+        fallbackReason,
+        '',
+        _ensureStageArtifact('', stage, options.pushTask || msg),
+      ].join('\n');
+    }
   }
 
   // Final render with footer
@@ -891,6 +1997,9 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl) {
 
   holderEl.dataset.raw = accumulated;
   holderEl.dataset.groupModel = _models[modelIdx].mid;
+  if (!options.suppressIdeaPush) {
+    await _pushCouncilIdea(options.pushTask || msg, holderEl, modelIdx);
+  }
 
   // Save response to parent session for persistence
   if (accumulated && _parentSessionId) {
@@ -900,7 +2009,7 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: [{
         role: 'assistant', content: accumulated,
-        metadata: { group_model: gName, model: _models[modelIdx].mid }
+        metadata: { group_model: gName, model: _models[modelIdx].mid, group_phase: options.phase || undefined }
       }]}),
     }).catch(() => {});
   }

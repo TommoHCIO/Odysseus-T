@@ -191,7 +191,7 @@ async def register_builtin_servers(mcp_manager):
             args = cfg["args"]
             pkg_spec = _npx_package_from_args(args)
             if pkg_spec and not await _is_npx_package_cached(npx_path, pkg_spec):
-                logger.warning(
+                logger.info(
                     f"{cfg['name']} is not available.\n"
                     f"  Reason: npm package {pkg_spec!r} is not installed in the npx cache.\n"
                     f"  Impact: tools provided by this MCP server will be unavailable.\n"
