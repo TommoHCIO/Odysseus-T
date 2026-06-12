@@ -9,6 +9,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
+import logging
 import os
 import re
 import shutil
@@ -30,9 +31,11 @@ from pydantic import BaseModel, Field
 from core.atomic_io import atomic_write_json
 from core.constants import BASE_DIR, DATA_DIR
 from src.auth_helpers import effective_user, require_user
+from src import obsidian_knowledge
 
 
 WORKSPACE_FILE = os.path.join(DATA_DIR, "workspace.json")
+OBSIDIAN_VAULT_ROOT = os.path.join(DATA_DIR, "obsidian-vault")
 _WORKSPACE_LOCK = threading.RLock()
 _PREVIEW_LOCK = threading.RLock()
 _PREVIEW_PROCS: Dict[str, Dict[str, Any]] = {}
@@ -40,6 +43,7 @@ SINGLE_USER_KEY = "__single__"
 COUNCIL_BUILD_ROOT = os.path.join(DATA_DIR, "council-builds")
 PREVIEW_HOST = "127.0.0.1"
 PREVIEW_START_TIMEOUT_SECONDS = 12
+logger = logging.getLogger(__name__)
 
 DEFAULT_WORKSPACE = {
     "requests": [],
@@ -143,6 +147,33 @@ def _collection(workspace: Dict[str, List[Dict[str, Any]]], kind: str) -> List[D
     if kind not in ALLOWED_KINDS:
         raise HTTPException(404, "Unknown workspace collection")
     return workspace[kind]
+
+
+def _log_workspace_event(user_key: str, event_type: str, kind: str, item: Dict[str, Any], *, summary: str = "") -> None:
+    try:
+        obsidian_knowledge.log_event(
+            user_key=user_key,
+            event_type=event_type,
+            title=f"{kind}: {item.get('title') or 'Untitled'}",
+            summary=summary or str(item.get("body") or item.get("evidence") or ""),
+            category="workspace",
+            genre="event",
+            source="workspace",
+            source_id=str(item.get("id") or ""),
+            status=str(item.get("status") or "logged"),
+            tags=["odysseus/workspace", kind, *(item.get("tags") or [])],
+            links={
+                "workspace_kind": kind,
+                "workspace_id": item.get("id"),
+                "item_links": item.get("links") or {},
+            },
+            evidence=str(item.get("evidence") or ""),
+            content=str(item.get("body") or ""),
+            vault_root=OBSIDIAN_VAULT_ROOT,
+            create_curation=event_type in {"workspace.evidence_added", "workspace.status_changed"},
+        )
+    except Exception:
+        logger.debug("workspace Obsidian logging failed", exc_info=True)
 
 
 def _normalize_html_artifact(html: str) -> str:
@@ -567,7 +598,9 @@ def setup_workspace_routes():
             raise HTTPException(404, "Workspace item not found")
         if item.get("status") == "blocked" or "qa-blocked" in (item.get("tags") or []):
             raise HTTPException(400, "Blocked QA artifacts cannot be previewed")
-        return _start_local_preview(user_key, kind, item_id, item)
+        preview = _start_local_preview(user_key, kind, item_id, item)
+        _log_workspace_event(user_key, "idea_loop.preview_started", kind, item, summary=f"Local preview started: {preview.get('url')}")
+        return preview
 
     @router.post("/preview/{kind}/{item_id}/stop")
     async def stop_workspace_preview(kind: str, item_id: str, request: Request):
@@ -580,7 +613,9 @@ def setup_workspace_routes():
             item = next((entry for entry in collection if entry.get("id") == item_id), None)
         if not item:
             raise HTTPException(404, "Workspace item not found")
-        return _stop_local_preview(user_key, kind, item_id)
+        result = _stop_local_preview(user_key, kind, item_id)
+        _log_workspace_event(user_key, "idea_loop.preview_stopped", kind, item, summary="Local preview stopped.")
+        return result
 
     @router.api_route("/preview/{kind}/{item_id}/proxy/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     async def proxy_workspace_preview(kind: str, item_id: str, path: str, request: Request):
@@ -591,24 +626,32 @@ def setup_workspace_routes():
     @router.post("/{kind}")
     async def create_workspace_item(kind: str, item: WorkspaceItem, request: Request):
         require_user(request)
+        user_key = _user_key(request)
         with _WORKSPACE_LOCK:
             data = _load_all()
-            workspace = _get_workspace(data, _user_key(request))
+            workspace = _get_workspace(data, user_key)
             collection = _collection(workspace, kind)
             new_item = _item_to_dict(item)
             collection.insert(0, new_item)
             _save_all(data)
+        _log_workspace_event(user_key, "workspace.item_created", kind, new_item)
         return new_item
 
     @router.put("/{kind}/{item_id}")
     async def update_workspace_item(kind: str, item_id: str, patch: WorkspaceItemUpdate, request: Request):
         require_user(request)
+        user_key = _user_key(request)
+        updated_item = None
+        event_types: List[str] = []
         with _WORKSPACE_LOCK:
             data = _load_all()
-            workspace = _get_workspace(data, _user_key(request))
+            workspace = _get_workspace(data, user_key)
             collection = _collection(workspace, kind)
             for item in collection:
                 if item.get("id") == item_id:
+                    old_status = item.get("status")
+                    old_evidence = item.get("evidence")
+                    old_links = deepcopy(item.get("links") or {})
                     updates = patch.model_dump(exclude_unset=True)
                     for key, value in updates.items():
                         if key in {"title", "body", "status", "source", "evidence"} and isinstance(value, str):
@@ -618,21 +661,38 @@ def setup_workspace_routes():
                         item[key] = value
                     item["updated_at"] = _now()
                     _save_all(data)
-                    return item
+                    updated_item = deepcopy(item)
+                    event_types.append("workspace.item_updated")
+                    if old_status != item.get("status"):
+                        event_types.append("workspace.status_changed")
+                    if old_evidence != item.get("evidence") and item.get("evidence"):
+                        event_types.append("workspace.evidence_added")
+                    if old_links != (item.get("links") or {}):
+                        event_types.append("workspace.link_added")
+                    break
+        if updated_item:
+            for event_type in event_types:
+                _log_workspace_event(user_key, event_type, kind, updated_item)
+            return updated_item
         raise HTTPException(404, "Workspace item not found")
 
     @router.delete("/{kind}/{item_id}")
     async def delete_workspace_item(kind: str, item_id: str, request: Request):
         require_user(request)
+        user_key = _user_key(request)
+        deleted_item = None
         with _WORKSPACE_LOCK:
             data = _load_all()
-            workspace = _get_workspace(data, _user_key(request))
+            workspace = _get_workspace(data, user_key)
             collection = _collection(workspace, kind)
+            deleted_item = deepcopy(next((item for item in collection if item.get("id") == item_id), None))
             before = len(collection)
             workspace[kind] = [item for item in collection if item.get("id") != item_id]
             if len(workspace[kind]) == before:
                 raise HTTPException(404, "Workspace item not found")
             _save_all(data)
+        if deleted_item:
+            _log_workspace_event(user_key, "workspace.item_deleted", kind, deleted_item)
         return {"ok": True}
 
     return router

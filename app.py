@@ -688,6 +688,10 @@ app.include_router(setup_note_routes(task_scheduler))
 from routes.workspace_routes import setup_workspace_routes
 app.include_router(setup_workspace_routes())
 
+# Obsidian-style Markdown vault
+from routes.obsidian_routes import setup_obsidian_routes
+app.include_router(setup_obsidian_routes())
+
 # Email
 from routes.email_routes import setup_email_routes
 app.include_router(setup_email_routes())

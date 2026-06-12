@@ -5,10 +5,14 @@ from fastapi.testclient import TestClient
 
 from core.middleware import SecurityHeadersMiddleware
 from routes import workspace_routes
+from src import obsidian_knowledge
 
 
 def _client(tmp_path, monkeypatch, *, security_headers=False):
     monkeypatch.setattr(workspace_routes, "WORKSPACE_FILE", str(tmp_path / "workspace.json"))
+    vault_root = str(tmp_path / "obsidian-vault")
+    monkeypatch.setattr(workspace_routes, "OBSIDIAN_VAULT_ROOT", vault_root)
+    monkeypatch.setattr(obsidian_knowledge, "OBSIDIAN_VAULT_ROOT", vault_root)
     app = FastAPI()
 
     @app.middleware("http")

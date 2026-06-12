@@ -10,7 +10,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +28,17 @@ def get_task_scheduler():
     return _task_scheduler
 
 
-def fire_event(event_name: str, owner: Optional[str] = None):
+def fire_event(event_name: str, owner: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
     """Fire an event — increments counters and triggers tasks that hit threshold.
 
     Safe to call from both sync and async contexts.
     """
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(_handle_event(event_name, owner))
+        loop.create_task(_handle_event(event_name, owner, metadata))
     except RuntimeError:
         # No running loop — run in a new one (shouldn't happen in FastAPI)
-        asyncio.run(_handle_event(event_name, owner))
+        asyncio.run(_handle_event(event_name, owner, metadata))
 
 
 def _resolve_event_owner(owner: Optional[str]) -> Optional[str]:
@@ -69,11 +69,21 @@ def _resolve_event_owner(owner: Optional[str]) -> Optional[str]:
     return None
 
 
-async def _handle_event(event_name: str, owner: Optional[str] = None):
+def _log_event_to_obsidian(event_name: str, owner: Optional[str], metadata: Optional[Dict[str, Any]]) -> None:
+    try:
+        from src.obsidian_knowledge import log_app_event
+
+        log_app_event(owner, event_name, metadata or {})
+    except Exception:
+        logger.debug("Obsidian event log failed for %s", event_name, exc_info=True)
+
+
+async def _handle_event(event_name: str, owner: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
     """Process an event: increment counters, fire tasks that hit their threshold."""
     from core.database import SessionLocal, ScheduledTask
 
     resolved_owner = _resolve_event_owner(owner)
+    _log_event_to_obsidian(event_name, resolved_owner, metadata)
     db = SessionLocal()
     try:
         filters = [

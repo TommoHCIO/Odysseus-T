@@ -35757,12 +35757,230 @@ body.theme-frosted .modal {
   padding: 4px 8px;
   font-size: 11px;
 }
+.workspace-modal .obsidian-vault-panel {
+  min-height: 0;
+  flex: 0 0 auto;
+}
+.workspace-modal .obsidian-vault-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0 10px;
+}
+.workspace-modal .obsidian-vault-toolbar > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.workspace-modal .obsidian-vault-toolbar strong {
+  font-size: 12px;
+}
+.workspace-modal .obsidian-vault-toolbar span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted, #888);
+  font-size: 10px;
+}
+.workspace-modal .obsidian-vault-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.workspace-modal .obsidian-vault-grid {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.34fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+  min-height: 0;
+}
+.workspace-modal .obsidian-note-list,
+.workspace-modal .obsidian-note-editor-shell {
+  min-width: 0;
+  min-height: 0;
+  max-height: min(620px, 62vh);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel, var(--bg)) 94%, var(--fg) 6%);
+  overflow: auto;
+}
+.workspace-modal .obsidian-note-list {
+  max-height: min(620px, 62vh);
+  overflow: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.workspace-modal .obsidian-note-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 68px;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-content: start;
+  gap: 4px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg) 88%, var(--fg) 12%);
+  color: var(--fg);
+  padding: 8px;
+  cursor: pointer;
+}
+.workspace-modal .obsidian-note-row:hover,
+.workspace-modal .obsidian-note-row.is-selected {
+  border-color: var(--accent, var(--red));
+  background: color-mix(in srgb, var(--accent, var(--red)) 12%, transparent);
+}
+.workspace-modal .obsidian-note-row strong,
+.workspace-modal .obsidian-note-row small {
+  display: block;
+  height: auto !important;
+  min-height: 1.2em;
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-modal .obsidian-note-row strong {
+  font-size: 12px;
+  color: var(--fg);
+  font-weight: 650;
+}
+.workspace-modal .obsidian-note-row small {
+  color: color-mix(in srgb, var(--fg) 68%, transparent);
+  font-size: 10px;
+}
+.workspace-modal .obsidian-note-tags,
+.workspace-modal .obsidian-note-metadata > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.workspace-modal .obsidian-note-tags span,
+.workspace-modal .obsidian-note-metadata span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: var(--fg-muted, #888);
+  font-size: 9px;
+}
+.workspace-modal .obsidian-note-editor {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 8px;
+  padding: 10px;
+}
+.workspace-modal .obsidian-note-editor-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+.workspace-modal .obsidian-note-editor label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--fg-muted, #888);
+  font-size: 10px;
+}
+.workspace-modal .obsidian-note-editor input,
+.workspace-modal .obsidian-note-editor textarea {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 92%, var(--fg) 8%);
+  color: var(--fg);
+  font: inherit;
+}
+.workspace-modal .obsidian-note-editor input {
+  padding: 7px 9px;
+}
+.workspace-modal .obsidian-note-editor textarea {
+  width: 100%;
+  height: clamp(220px, 34vh, 360px);
+  min-height: 0;
+  resize: vertical;
+  padding: 10px;
+  font: 11px/1.5 'Fira Code', ui-monospace, monospace;
+}
+.workspace-modal .obsidian-note-metadata {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.workspace-modal .obsidian-note-metadata > div {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px;
+  background: color-mix(in srgb, var(--bg) 88%, var(--fg) 12%);
+}
+.workspace-modal .obsidian-note-metadata strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  color: var(--accent, var(--red));
+}
+.workspace-modal .obsidian-note-metadata ul {
+  margin: 0;
+  padding-left: 16px;
+  max-height: 82px;
+  overflow: auto;
+}
+.workspace-modal .obsidian-note-metadata li,
+.workspace-modal .obsidian-note-metadata em {
+  color: var(--fg-muted, #888);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.workspace-modal .obsidian-curation-list {
+  display: grid;
+  gap: 8px;
+}
+.workspace-modal .obsidian-curation-panel {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+}
+.workspace-modal .obsidian-curation-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px;
+  background: color-mix(in srgb, var(--panel, var(--bg)) 94%, var(--fg) 6%);
+}
+.workspace-modal .obsidian-curation-card strong,
+.workspace-modal .obsidian-curation-card span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-modal .obsidian-curation-card strong {
+  font-size: 12px;
+}
+.workspace-modal .obsidian-curation-card span {
+  color: var(--fg-muted, #888);
+  font-size: 10px;
+}
 .workspace-modal .workspace-graph-panel {
   min-height: 520px;
 }
 .workspace-modal .obsidian-graph-toolbar {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 150px 140px auto;
+  grid-template-columns: minmax(180px, 1fr) 150px 140px auto auto;
   gap: 8px;
   align-items: center;
   margin: 12px 0;
@@ -35800,7 +36018,7 @@ body.theme-frosted .modal {
   width: 100%;
   min-height: 390px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   background:
     radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--accent, var(--red)) 12%, transparent), transparent 28%),
     color-mix(in srgb, var(--panel, var(--bg)) 94%, var(--fg) 6%);
@@ -35847,7 +36065,7 @@ body.theme-frosted .modal {
 }
 .workspace-modal .obsidian-graph-inspector {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 12px;
   background: color-mix(in srgb, var(--panel, var(--bg)) 94%, var(--fg) 6%);
   overflow: auto;
@@ -35895,12 +36113,736 @@ body.theme-frosted .modal {
   border-radius: 999px;
   display: inline-block;
 }
+
+#obsidian-modal .workspace-modal-content {
+  width: min(1280px, 96vw);
+  height: min(820px, calc(100dvh - 24px));
+  max-height: calc(100dvh - 24px);
+  max-width: calc(100vw - 24px);
+}
+#obsidian-modal .workspace-body {
+  overflow: hidden;
+  gap: 0;
+}
+.workspace-modal .obsidian-cockpit {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  gap: 8px;
+}
+.workspace-modal .obsidian-cockpit-top {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+.workspace-modal .obsidian-cockpit-top > div:first-child {
+  min-width: 0;
+}
+.workspace-modal .obsidian-cockpit-top span {
+  display: block;
+  color: color-mix(in srgb, var(--accent, var(--red)) 78%, #fff 22%);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.workspace-modal .obsidian-cockpit-top h2 {
+  margin: 1px 0 2px;
+  font-size: 20px;
+  line-height: 1.05;
+}
+.workspace-modal .obsidian-cockpit-top p {
+  margin: 0;
+  max-width: 68ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
+  font-size: 11px;
+}
+.workspace-modal .obsidian-cockpit-actions,
+.workspace-modal .obsidian-vault-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.workspace-modal .obsidian-cockpit .doclib-card-action-btn {
+  min-height: 28px;
+  border-radius: 7px;
+  padding: 5px 9px;
+  line-height: 1.1;
+}
+.workspace-modal .obsidian-primary-action {
+  border-color: color-mix(in srgb, #71e3bd 58%, var(--border));
+  background: color-mix(in srgb, #71e3bd 14%, transparent);
+}
+.workspace-modal .obsidian-danger-action {
+  border-color: color-mix(in srgb, var(--red, #e25555) 58%, var(--border));
+  color: color-mix(in srgb, var(--red, #e25555) 88%, #fff 12%);
+}
+.workspace-modal .obsidian-health-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 7px;
+}
+.workspace-modal .obsidian-chip {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: color-mix(in srgb, var(--bg) 82%, #2f4550 18%);
+  color: color-mix(in srgb, var(--fg) 66%, transparent);
+  font-size: 10px;
+  overflow: hidden;
+}
+.workspace-modal .obsidian-chip strong {
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-modal .obsidian-chip.is-pending {
+  border-color: color-mix(in srgb, #f2c66d 54%, var(--border));
+  background: color-mix(in srgb, #f2c66d 12%, transparent);
+}
+.workspace-modal .obsidian-chip.is-knowledge {
+  border-color: color-mix(in srgb, #71e3bd 42%, var(--border));
+}
+.workspace-modal .obsidian-chip.is-journal {
+  border-color: color-mix(in srgb, #7dd3fc 42%, var(--border));
+}
+.workspace-modal .obsidian-chip.is-path {
+  grid-column: auto;
+}
+.workspace-modal .obsidian-command-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+}
+.workspace-modal .obsidian-command-bar label {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  color: color-mix(in srgb, var(--fg) 64%, transparent);
+  font-size: 10px;
+}
+.workspace-modal .obsidian-command-bar input,
+.workspace-modal .obsidian-note-editor input,
+.workspace-modal .obsidian-note-editor textarea,
+.workspace-modal .obsidian-graph-toolbar input,
+.workspace-modal .obsidian-graph-toolbar select {
+  border-radius: 7px;
+}
+.workspace-modal .obsidian-command-bar input {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 86%, #31434d 14%);
+  color: var(--fg);
+  padding: 8px 10px;
+  font: inherit;
+}
+.workspace-modal .obsidian-command-status {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  color: color-mix(in srgb, var(--fg) 64%, transparent);
+  font-size: 10px;
+}
+.workspace-modal .obsidian-command-status span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 7px;
+  background: color-mix(in srgb, var(--bg) 90%, var(--fg) 10%);
+}
+.workspace-modal .obsidian-cockpit-tabs {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+.workspace-modal .obsidian-cockpit-tab {
+  flex: 0 0 auto;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 90%, var(--fg) 10%);
+  color: var(--fg);
+  padding: 5px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.workspace-modal .obsidian-cockpit-tab span {
+  min-width: 18px;
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+  color: color-mix(in srgb, var(--fg) 76%, transparent);
+  font-size: 10px;
+}
+.workspace-modal .obsidian-cockpit-tab:hover,
+.workspace-modal .obsidian-cockpit-tab.is-active {
+  border-color: color-mix(in srgb, var(--accent, var(--red)) 64%, var(--border));
+  background: color-mix(in srgb, var(--accent, var(--red)) 12%, transparent);
+}
+.workspace-modal .obsidian-cockpit-stage {
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-modal .obsidian-cockpit-grid {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.86fr) minmax(320px, 2fr) minmax(220px, 0.9fr);
+  gap: 9px;
+}
+.workspace-modal .obsidian-rail,
+.workspace-modal .obsidian-main-panel,
+.workspace-modal .obsidian-context-panel,
+.workspace-modal .obsidian-graph-workspace {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 84%, #293840 16%);
+}
+.workspace-modal .obsidian-rail,
+.workspace-modal .obsidian-context-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace-modal .obsidian-main-panel,
+.workspace-modal .obsidian-graph-workspace {
+  overflow: hidden;
+}
+.workspace-modal .obsidian-pane-title {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+}
+.workspace-modal .obsidian-pane-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.workspace-modal .obsidian-pane-title span {
+  color: color-mix(in srgb, var(--fg) 64%, transparent);
+  font-size: 10px;
+}
+.workspace-modal .obsidian-note-list,
+.workspace-modal .obsidian-curation-list,
+.workspace-modal .obsidian-activity-list,
+.workspace-modal .obsidian-search-results {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.workspace-modal .obsidian-note-list {
+  flex: 1 1 auto;
+  max-height: none;
+}
+.workspace-modal .obsidian-rail-queue {
+  flex: 0 0 min(220px, 38%);
+  min-height: 120px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace-modal .obsidian-rail-queue .obsidian-curation-list {
+  flex: 1;
+}
+.workspace-modal .obsidian-note-row,
+.workspace-modal .obsidian-search-result,
+.workspace-modal .obsidian-activity-row {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 86%, #33454d 14%);
+  color: var(--fg);
+  padding: 8px;
+  cursor: pointer;
+}
+.workspace-modal .obsidian-note-row {
+  box-sizing: border-box;
+  min-height: max-content;
+  height: auto;
+  grid-auto-rows: min-content;
+  align-content: start;
+  overflow: visible;
+}
+.workspace-modal .obsidian-note-row:hover,
+.workspace-modal .obsidian-note-row.is-selected,
+.workspace-modal .obsidian-search-result:hover,
+.workspace-modal .obsidian-activity-row:hover {
+  border-color: color-mix(in srgb, var(--accent, var(--red)) 64%, var(--border));
+  background: color-mix(in srgb, var(--accent, var(--red)) 12%, transparent);
+}
+.workspace-modal .obsidian-note-row.is-knowledge {
+  border-left-color: #71e3bd;
+}
+.workspace-modal .obsidian-note-row.is-pending,
+.workspace-modal .obsidian-activity-row.is-pending {
+  border-left-color: #f2c66d;
+}
+.workspace-modal .obsidian-note-row.is-journal,
+.workspace-modal .obsidian-activity-row.is-journal {
+  border-left-color: #7dd3fc;
+}
+.workspace-modal .obsidian-note-row-head,
+.workspace-modal .obsidian-search-result span,
+.workspace-modal .obsidian-activity-row span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.workspace-modal .obsidian-note-row strong,
+.workspace-modal .obsidian-search-result strong,
+.workspace-modal .obsidian-activity-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.workspace-modal .obsidian-note-row time,
+.workspace-modal .obsidian-activity-row time,
+.workspace-modal .obsidian-search-result b,
+.workspace-modal .obsidian-activity-row b {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--fg) 58%, transparent);
+  font-size: 9px;
+  font-weight: 500;
+}
+.workspace-modal .obsidian-note-row small,
+.workspace-modal .obsidian-search-result small,
+.workspace-modal .obsidian-activity-row small {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
+  font-size: 10px;
+}
+.workspace-modal .obsidian-note-row-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  color: color-mix(in srgb, var(--fg) 66%, transparent);
+  font-size: 9px;
+}
+.workspace-modal .obsidian-note-row-meta b {
+  color: color-mix(in srgb, #f2c66d 70%, var(--fg));
+  font-weight: 650;
+}
+.workspace-modal .obsidian-note-row-meta i {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+}
+.workspace-modal .obsidian-note-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  align-items: flex-start;
+}
+.workspace-modal .obsidian-note-tags span {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(100%, 164px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  padding: 2px 6px;
+  line-height: 1.25;
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
+  font-size: 9px;
+}
+.workspace-modal .obsidian-note-editor {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px;
+}
+.workspace-modal .obsidian-note-editor-head {
+  align-items: end;
+}
+.workspace-modal .obsidian-note-editor textarea {
+  height: 100%;
+  min-height: 0;
+  resize: none;
+  overflow: auto;
+  font: 12px/1.55 'Fira Code', ui-monospace, monospace;
+}
+.workspace-modal .obsidian-save-state {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
+  font-size: 10px;
+}
+.workspace-modal .obsidian-save-state.is-dirty {
+  border-color: color-mix(in srgb, #f2c66d 58%, var(--border));
+  color: #f2c66d;
+}
+.workspace-modal .obsidian-context-panel {
+  overflow: auto;
+  padding: 10px;
+  gap: 11px;
+}
+.workspace-modal .obsidian-context-panel section {
+  display: grid;
+  gap: 6px;
+}
+.workspace-modal .obsidian-context-panel h3,
+.workspace-modal .obsidian-context-head span {
+  margin: 0;
+  color: color-mix(in srgb, var(--accent, var(--red)) 76%, #fff 24%);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.workspace-modal .obsidian-context-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+.workspace-modal .obsidian-context-head strong {
+  border: 1px solid color-mix(in srgb, #f2c66d 45%, var(--border));
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #f2c66d;
+  font-size: 10px;
+}
+.workspace-modal .obsidian-yaml-summary {
+  display: grid;
+  gap: 5px;
+}
+.workspace-modal .obsidian-yaml-summary div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 7px;
+  padding: 6px;
+  background: color-mix(in srgb, var(--bg) 90%, var(--fg) 10%);
+}
+.workspace-modal .obsidian-yaml-summary span,
+.workspace-modal .obsidian-context-panel em,
+.workspace-modal .obsidian-context-panel li {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.workspace-modal .obsidian-yaml-summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--fg);
+  font-size: 11px;
+}
+.workspace-modal .obsidian-link-list {
+  display: grid;
+  gap: 5px;
+}
+.workspace-modal .obsidian-link-list button,
+.workspace-modal .obsidian-link-list span {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg) 90%, var(--fg) 10%);
+  color: var(--fg);
+  padding: 5px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font: inherit;
+  font-size: 10px;
+}
+.workspace-modal .obsidian-link-list button {
+  cursor: pointer;
+}
+.workspace-modal .obsidian-link-list button:hover {
+  border-color: color-mix(in srgb, var(--accent, var(--red)) 64%, var(--border));
+}
+.workspace-modal .obsidian-context-panel ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.workspace-modal .obsidian-curation-card {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  border-radius: 8px;
+}
+.workspace-modal .obsidian-curation-card small {
+  display: block;
+  margin-top: 3px;
+  color: color-mix(in srgb, var(--fg) 56%, transparent);
+  font-size: 9px;
+}
+.workspace-modal .obsidian-curation-list.is-compact .obsidian-curation-card .obsidian-vault-actions {
+  justify-content: flex-start;
+}
+.workspace-modal .obsidian-search-panel {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.workspace-modal .obsidian-search-result p {
+  margin: 0;
+  color: color-mix(in srgb, var(--fg) 72%, transparent);
+  font-size: 10px;
+  line-height: 1.4;
+  max-height: 44px;
+  overflow: hidden;
+}
+.workspace-modal .obsidian-search-result mark {
+  border-radius: 3px;
+  background: color-mix(in srgb, #f2c66d 45%, transparent);
+  color: var(--fg);
+}
+.workspace-modal .obsidian-activity-list {
+  flex: 1;
+}
+.workspace-modal .obsidian-graph-workspace {
+  padding: 10px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.workspace-modal .obsidian-graph-workspace .obsidian-graph-toolbar {
+  margin: 0 0 8px;
+}
+.workspace-modal .obsidian-graph-shell {
+  min-height: 0;
+  height: 100%;
+}
+.workspace-modal .obsidian-graph-shell-3d {
+  grid-template-columns: minmax(0, 1fr) 278px;
+}
+.workspace-modal .obsidian-graph-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 430px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 8px;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(8, 18, 23, 0.98), rgba(10, 28, 30, 0.95)),
+    color-mix(in srgb, var(--bg) 88%, #12252b 12%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+}
+.workspace-modal .obsidian-graph-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 42px 42px;
+  opacity: 0.28;
+}
+.workspace-modal .obsidian-graph-stage.is-fallback::before {
+  display: none;
+}
+.workspace-modal .obsidian-graph-3d {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  min-width: 0;
+  cursor: grab;
+}
+.workspace-modal .obsidian-graph-3d.is-hovering-node {
+  cursor: pointer;
+}
+.workspace-modal .obsidian-graph-3d canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+.workspace-modal .obsidian-graph-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--fg) 64%, transparent);
+  font-size: 12px;
+  letter-spacing: 0;
+  background: rgba(6, 14, 18, 0.72);
+}
+.workspace-modal .obsidian-graph-fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: color-mix(in srgb, var(--bg) 88%, #24363d 12%);
+}
+.workspace-modal .obsidian-graph-fallback .obsidian-graph-svg {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+.workspace-modal .obsidian-graph-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--red, #e25555) 48%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--red, #e25555) 10%, var(--panel, var(--bg)) 90%);
+  color: var(--fg);
+  font-size: 11px;
+}
+.workspace-modal .obsidian-graph-error span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--fg) 72%, transparent);
+}
+.workspace-modal .obsidian-graph-error[hidden],
+.workspace-modal .obsidian-graph-loading[hidden],
+.workspace-modal .obsidian-graph-fallback[hidden],
+.workspace-modal .obsidian-graph-3d[hidden] {
+  display: none !important;
+}
+.workspace-modal .obsidian-graph-svg {
+  min-height: 0;
+  height: 100%;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 86%, #24363d 14%);
+}
+.workspace-modal .obsidian-graph-inspector {
+  min-height: 0;
+  border-radius: 8px;
+}
+.workspace-modal .obsidian-empty,
+.workspace-modal .obsidian-error {
+  margin: auto;
+  padding: 16px;
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.workspace-modal .obsidian-error {
+  color: color-mix(in srgb, var(--red, #e25555) 82%, #fff 18%);
+}
+.workspace-modal .obsidian-cockpit :focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, var(--red)) 74%, #fff 26%);
+  outline-offset: 2px;
+}
 @media (max-width: 900px) {
   .workspace-modal .idea-loop-board {
     grid-template-columns: 1fr;
   }
   .workspace-modal .idea-loop-column {
     min-height: 360px;
+  }
+  .workspace-modal .obsidian-health-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .workspace-modal .obsidian-command-bar {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .workspace-modal .obsidian-command-status {
+    justify-content: flex-start;
+  }
+  .workspace-modal .obsidian-cockpit-stage {
+    overflow: auto;
+  }
+  .workspace-modal .obsidian-cockpit-grid {
+    height: auto;
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+  .workspace-modal .obsidian-rail,
+  .workspace-modal .obsidian-main-panel,
+  .workspace-modal .obsidian-context-panel {
+    min-height: 280px;
+  }
+  .workspace-modal .obsidian-main-panel {
+    min-height: 430px;
+  }
+  .workspace-modal .obsidian-rail-queue {
+    flex-basis: auto;
+    max-height: 260px;
+  }
+  .workspace-modal .obsidian-vault-grid,
+  .workspace-modal .obsidian-graph-shell {
+    grid-template-columns: 1fr;
+  }
+  .workspace-modal .obsidian-graph-toolbar {
+    grid-template-columns: minmax(0, 1fr) 140px;
+  }
+  .workspace-modal .obsidian-graph-toolbar label {
+    justify-content: flex-start;
+  }
+  .workspace-modal .obsidian-graph-stage {
+    min-height: 390px;
+  }
+  .workspace-modal .obsidian-note-list {
+    max-height: 220px;
+  }
+  .workspace-modal .obsidian-note-metadata {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 768px) {
@@ -35920,5 +36862,59 @@ body.theme-frosted .modal {
   .workspace-modal .workspace-header-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+  #obsidian-modal .workspace-modal-content {
+    height: 100dvh;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+  #obsidian-modal .workspace-body {
+    overflow: hidden;
+  }
+  .workspace-modal .obsidian-cockpit {
+    gap: 7px;
+  }
+  .workspace-modal .obsidian-cockpit-top {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .workspace-modal .obsidian-cockpit-actions {
+    justify-content: flex-start;
+  }
+  .workspace-modal .obsidian-health-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .workspace-modal .obsidian-cockpit-top h2 {
+    font-size: 17px;
+  }
+  .workspace-modal .obsidian-cockpit-tabs {
+    padding-bottom: 4px;
+  }
+  .workspace-modal .obsidian-cockpit-tab {
+    min-height: 32px;
+  }
+  .workspace-modal .obsidian-graph-workspace {
+    padding: 6px;
+  }
+  .workspace-modal .obsidian-graph-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-modal .obsidian-graph-toolbar input[type="range"] {
+    width: 100%;
+  }
+  .workspace-modal .obsidian-graph-stage {
+    min-height: 330px;
+  }
+  .workspace-modal .obsidian-graph-error {
+    grid-template-columns: 1fr;
+  }
+  .workspace-modal .obsidian-graph-error span {
+    white-space: normal;
+  }
+  .workspace-modal .obsidian-note-editor-head {
+    grid-template-columns: 1fr;
+  }
+  .workspace-modal .obsidian-vault-actions {
+    justify-content: flex-start;
   }
 }

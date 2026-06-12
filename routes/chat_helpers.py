@@ -303,7 +303,59 @@ def fire_message_event(request, webhook_manager, session_id: str, sess, message:
         }))
     from src.event_bus import fire_event
     user = get_current_user(request)
-    fire_event("message_sent", user)
+    fire_event("message_sent", user, {
+        "title": "User message",
+        "summary": message[:500],
+        "message": message[:2000],
+        "session_id": session_id,
+        "model": getattr(sess, "model", ""),
+        "source": "chat",
+        "source_id": session_id,
+    })
+
+
+def _obsidian_recall_context(user: Optional[str], message: str, *, agent_mode: bool, incognito: bool, session_id: str) -> Optional[str]:
+    if incognito:
+        return None
+    try:
+        from src.obsidian_knowledge import log_event, search_knowledge
+
+        limit = 12 if agent_mode else 6
+        found = search_knowledge(user or "__single__", message or "", limit=limit)
+        results = found.get("results") or []
+        if not results:
+            return None
+        lines = [
+            "Relevant Obsidian canonical knowledge. Treat these notes as user-owned context; prefer curated Knowledge notes over raw Journal notes when they conflict.",
+            "",
+        ]
+        for item in results[:limit]:
+            snippet = str(item.get("snippet") or "").strip()
+            if len(snippet) > 900:
+                snippet = snippet[:900] + "\n[...snippet truncated...]"
+            lines.extend([
+                f"- Path: {item.get('path')}",
+                f"  Title: {item.get('title')}",
+                f"  Reason: {item.get('reason')}",
+                f"  Snippet: {snippet}",
+                "",
+            ])
+        event_type = "agent.context_injected" if agent_mode else "chat.context_injected"
+        log_event(
+            user_key=user or "__single__",
+            event_type=event_type,
+            title="Obsidian context injected",
+            summary=f"Injected {len(results[:limit])} Obsidian note(s) into model context.",
+            source="chat",
+            source_id=session_id,
+            tags=["odysseus/recall", "obsidian"],
+            links={"notes": [{"path": item.get("path"), "score": item.get("score")} for item in results[:limit]]},
+            create_curation=False,
+        )
+        return "\n".join(lines).strip()
+    except Exception:
+        logger.debug("Obsidian recall failed", exc_info=True)
+        return None
 
 
 def resolve_session_auth(sess, session_id: str):
@@ -425,6 +477,16 @@ async def build_chat_context(
 
     # Capture used memories immediately
     used_memories = getattr(chat_processor, '_last_used_memories', [])
+
+    obsidian_context = _obsidian_recall_context(
+        user,
+        preprocessed.text_for_context,
+        agent_mode=agent_mode,
+        incognito=incognito,
+        session_id=session_id,
+    )
+    if obsidian_context:
+        preface.append(untrusted_context_message("obsidian canonical knowledge", obsidian_context))
 
     # Inject pre-fetched search context (compare mode)
     if search_context:

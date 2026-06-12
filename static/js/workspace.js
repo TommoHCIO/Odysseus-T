@@ -5,6 +5,7 @@ import { makeWindowDraggable } from './windowDrag.js';
 const API_BASE = window.location.origin;
 const OBSIDIAN_MODAL_ID = 'obsidian-modal';
 const IDEA_LOOP_MODAL_ID = 'idea-loop-modal';
+const OBSIDIAN_GRAPH_3D_SCRIPT = '/static/lib/3d-force-graph.min.js';
 
 const COLLECTIONS = {
   requests: {
@@ -106,10 +107,34 @@ const LOOP_STAGE_GATES = {
 };
 
 let _state = null;
+let _obsidianState = null;
 let _activeKind = 'requests';
 let _loading = false;
+let _obsidianLoading = false;
 let _saving = false;
 let _bound = false;
+let _selectedNotePath = '';
+let _noteDraft = null;
+let _obsidianNoteDetails = {};
+let _obsidianTab = 'vault';
+let _obsidianQuery = '';
+let _obsidianSearchResults = [];
+let _obsidianSearching = false;
+let _obsidianSearchError = '';
+let _obsidianSearchTimer = null;
+let _obsidianDirty = false;
+let _obsidianEditorDraft = null;
+let _selectedGraphNodeId = '';
+let _obsidianGraphQuery = '';
+let _obsidianGraphScope = 'global';
+let _obsidianGraphDepth = 2;
+let _obsidianGraphArrows = true;
+let _obsidianGraphError = '';
+let _obsidianGraphScriptPromise = null;
+let _obsidianGraphInstance = null;
+let _obsidianGraphResizeObserver = null;
+let _obsidianGraphMountToken = 0;
+let _surfaceResizeTimer = null;
 
 function _obsidianIcon() {
   return '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 7v8l7 6 7-6V7z"/><path d="M12 3v18"/><path d="M5 7l7 5 7-5"/></svg>';
@@ -129,6 +154,17 @@ function _normalizeState(data) {
   const out = {};
   for (const key of Object.keys(COLLECTIONS)) out[key] = Array.isArray(data?.[key]) ? data[key] : [];
   return out;
+}
+
+function _normalizeObsidianState(data) {
+  return {
+    root: data?.root || '',
+    notes: Array.isArray(data?.notes) ? data.notes : [],
+    graph: {
+      nodes: Array.isArray(data?.graph?.nodes) ? data.graph.nodes : [],
+      edges: Array.isArray(data?.graph?.edges) ? data.graph.edges : [],
+    },
+  };
 }
 
 async function _request(path, options = {}) {
@@ -156,6 +192,25 @@ async function _load() {
     uiModule.showToast?.(`Workspace load failed: ${err.message}`);
   } finally {
     _loading = false;
+    _renderOpenSurfaces();
+  }
+}
+
+async function _loadObsidian() {
+  _obsidianLoading = true;
+  _renderOpenSurfaces();
+  try {
+    _obsidianState = _normalizeObsidianState(await _request('/api/obsidian'));
+    const paths = new Set((_obsidianState.notes || []).map((note) => note.path));
+    _obsidianNoteDetails = Object.fromEntries(Object.entries(_obsidianNoteDetails).filter(([path]) => paths.has(path)));
+    _ensureSelectedNote();
+    if (_selectedNotePath && !_noteDraft) {
+      await _loadSelectedObsidianNote(_selectedNotePath, { render: false });
+    }
+  } catch (err) {
+    uiModule.showToast?.(`Obsidian vault load failed: ${err.message}`);
+  } finally {
+    _obsidianLoading = false;
     _renderOpenSurfaces();
   }
 }
@@ -220,9 +275,15 @@ function _positionSurface(modal, offsetX, offsetY) {
 function _clampSurface(modal) {
   const content = modal?.querySelector?.('.modal-content');
   if (!content || window.innerWidth <= 768) return;
+  const maxWidth = Math.max(320, window.innerWidth - 32);
+  const maxHeight = Math.max(420, window.innerHeight - 32);
+  content.style.maxWidth = `${maxWidth}px`;
+  content.style.maxHeight = `${maxHeight}px`;
+  if (content.offsetWidth > maxWidth) content.style.width = `${maxWidth}px`;
+  if (content.offsetHeight > maxHeight) content.style.height = `${maxHeight}px`;
   const rect = content.getBoundingClientRect();
-  const width = rect.width || Math.min(1180, window.innerWidth - 32);
-  const height = rect.height || Math.min(window.innerHeight - 32, 820);
+  const width = Math.min(rect.width || Math.min(1180, maxWidth), maxWidth);
+  const height = Math.min(rect.height || Math.min(maxHeight, 820), maxHeight);
   const left = Math.min(Math.max(16, rect.left), Math.max(16, window.innerWidth - width - 16));
   const top = Math.min(Math.max(16, rect.top), Math.max(16, window.innerHeight - height - 16));
   content.style.left = `${left}px`;
@@ -274,6 +335,231 @@ function _allWorkspaceItems() {
   })));
 }
 
+function _noteUrl(path) {
+  return String(path || '')
+    .split('/')
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+}
+
+function _noteByPath(path) {
+  return (_obsidianState?.notes || []).find((note) => note.path === path) || null;
+}
+
+function _ensureSelectedNote() {
+  if (_noteDraft) return;
+  const notes = _obsidianState?.notes || [];
+  if (_selectedNotePath && notes.some((note) => note.path === _selectedNotePath)) return;
+  _selectedNotePath = notes[0]?.path || '';
+}
+
+function _newNoteTemplate() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  return {
+    path: `Inbox/untitled-${stamp}.md`,
+    title: `Untitled ${stamp}`,
+    content: `---\ntitle: "Untitled ${stamp}"\ntags: [inbox]\n---\n\n# Untitled ${stamp}\n\n`,
+    tags: ['inbox'],
+    aliases: [],
+    backlinks: [],
+    outgoing_paths: [],
+    headings: [],
+    tasks: [],
+  };
+}
+
+function _activeNote() {
+  const base = _noteDraft || _obsidianNoteDetails[_selectedNotePath] || _noteByPath(_selectedNotePath);
+  if (!base) return null;
+  if (_obsidianEditorDraft && (_obsidianEditorDraft.originalPath === base.path || _obsidianEditorDraft.path === base.path)) {
+    return {
+      ...base,
+      path: _obsidianEditorDraft.path || base.path,
+      content: _obsidianEditorDraft.content ?? base.content,
+    };
+  }
+  return base;
+}
+
+function _pendingCurationNotes() {
+  return (_obsidianState?.notes || []).filter((note) => String(note.path || '').startsWith('Odysseus/Curation/Pending/'));
+}
+
+function _noteKind(note) {
+  const path = String(note?.path || '');
+  if (path.includes('/Journal/')) return 'journal';
+  if (path.includes('/Curation/Pending/')) return 'pending';
+  if (path.includes('/Curation/Rejected/')) return 'rejected';
+  if (path.includes('/Knowledge/')) return 'knowledge';
+  if (path.startsWith('Inbox/')) return 'inbox';
+  return 'note';
+}
+
+function _noteStatus(note) {
+  const meta = note?.frontmatter || {};
+  const tags = new Set((note?.tags || []).map((tag) => String(tag).toLowerCase()));
+  if (meta.status) return String(meta.status);
+  if (tags.has('approved')) return 'approved';
+  if (tags.has('rejected')) return 'rejected';
+  if (tags.has('pending') || _noteKind(note) === 'pending') return 'pending';
+  if (_noteKind(note) === 'journal') return 'logged';
+  return 'stored';
+}
+
+function _formatShortDate(value) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 10);
+  return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function _formatLongDate(value) {
+  if (!value) return 'No timestamp';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function _obsidianHealth() {
+  const notes = _obsidianState?.notes || [];
+  const pending = _pendingCurationNotes();
+  const knowledge = notes.filter((note) => _noteKind(note) === 'knowledge');
+  const journal = notes.filter((note) => _noteKind(note) === 'journal');
+  const links = _obsidianState?.graph?.edges?.length || 0;
+  const last = notes.reduce((best, note) => String(note.updated_at || '') > String(best || '') ? note.updated_at : best, '');
+  return { notes, pending, knowledge, journal, links, last };
+}
+
+function _noteMatchesQuery(note, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  const meta = note?.frontmatter || {};
+  const haystack = [
+    note?.title,
+    note?.path,
+    _noteKind(note),
+    _noteStatus(note),
+    meta.genre,
+    meta.type,
+    meta.category,
+    ...(note?.tags || []),
+    ...(note?.aliases || []),
+    ...(note?.headings || []).map((heading) => heading.text),
+  ].join(' ').toLowerCase();
+  return haystack.includes(q);
+}
+
+function _filteredObsidianNotes() {
+  return (_obsidianState?.notes || []).filter((note) => _noteMatchesQuery(note, _obsidianQuery));
+}
+
+function _recentActivityNotes() {
+  return (_obsidianState?.notes || [])
+    .filter((note) => ['journal', 'knowledge', 'pending', 'rejected'].includes(_noteKind(note)))
+    .slice()
+    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+    .slice(0, 18);
+}
+
+function _frontmatterRows(note) {
+  const meta = note?.frontmatter || {};
+  return Object.entries(meta)
+    .filter(([key]) => !['title', 'tags'].includes(key))
+    .slice(0, 10)
+    .map(([key, value]) => `<div><span>${_escape(key)}</span><strong>${_escape(Array.isArray(value) ? value.join(', ') : value)}</strong></div>`)
+    .join('');
+}
+
+function _statusChip(label, value, tone = '') {
+  return `<span class="obsidian-chip ${tone ? `is-${_escape(tone)}` : ''}"><strong>${_escape(value)}</strong>${_escape(label)}</span>`;
+}
+
+function _confirmDiscardObsidianChanges() {
+  if (!_obsidianDirty) return true;
+  return window.confirm('Discard unsaved Obsidian note changes?');
+}
+
+function _clearObsidianDirty() {
+  _obsidianDirty = false;
+  _obsidianEditorDraft = null;
+}
+
+async function _loadSelectedObsidianNote(path, { render = true } = {}) {
+  if (!path) return null;
+  try {
+    const note = await _request(`/api/obsidian/notes/${_noteUrl(path)}`);
+    _obsidianNoteDetails[note.path] = note;
+    if (render) _renderObsidian();
+    return note;
+  } catch (err) {
+    uiModule.showToast?.(`Obsidian note load failed: ${err.message}`);
+    return null;
+  }
+}
+
+async function _runObsidianSearch(query) {
+  const q = String(query || '').trim();
+  if (!q) {
+    _obsidianSearchResults = [];
+    _obsidianSearchError = '';
+    _obsidianSearching = false;
+    _renderObsidian();
+    return;
+  }
+  _obsidianSearching = true;
+  _obsidianSearchError = '';
+  try {
+    const result = await _request(`/api/obsidian/search?q=${encodeURIComponent(q)}&limit=12`);
+    if (_obsidianQuery.trim() !== q) return;
+    _obsidianSearchResults = Array.isArray(result?.results) ? result.results : [];
+  } catch (err) {
+    _obsidianSearchError = err.message || 'Search failed';
+  } finally {
+    if (_obsidianQuery.trim() === q) {
+      _obsidianSearching = false;
+      _renderObsidian();
+    }
+  }
+}
+
+function _scheduleObsidianSearch(query) {
+  _obsidianQuery = String(query || '');
+  window.clearTimeout(_obsidianSearchTimer);
+  if (!_obsidianQuery.trim()) {
+    _obsidianSearchResults = [];
+    _obsidianSearchError = '';
+    _obsidianSearching = false;
+    _renderObsidian();
+    return;
+  }
+  _obsidianSearching = true;
+  _obsidianSearchTimer = window.setTimeout(() => {
+    _runObsidianSearch(_obsidianQuery);
+  }, 260);
+}
+
+function _obsidianGraphData() {
+  const nodes = _obsidianState?.graph?.nodes || [];
+  const edges = _obsidianState?.graph?.edges || [];
+  if (nodes.length) {
+    return {
+      mode: 'vault',
+      nodes: nodes.map((node, index) => ({
+        ...node,
+        id: node.id || node.path,
+        label: node.title || node.path || 'Untitled',
+        group: node.kind === 'missing' ? 'Unresolved' : 'Notes',
+        kind: node.kind || 'note',
+        index,
+        weight: 1 + (node.tags || []).length,
+      })),
+      edges,
+    };
+  }
+  return { mode: 'workspace', ..._graphData() };
+}
+
 function _graphData() {
   const items = _allWorkspaceItems();
   const itemIds = new Set(items.map((item) => item.id));
@@ -302,12 +588,240 @@ function _graphData() {
   return { nodes, edges };
 }
 
-function _renderObsidianGraph() {
-  const { nodes, edges } = _graphData();
-  if (!nodes.length) return '<div class="workspace-empty-inline">No graph nodes yet. Run the Council loop to build the vault graph.</div>';
+function _graphEndpointId(value) {
+  if (value && typeof value === 'object') return value.id || value.path || value.name || '';
+  return String(value || '');
+}
+
+function _graphEdgeFrom(edge) {
+  return _graphEndpointId(edge?.from ?? edge?.source);
+}
+
+function _graphEdgeTo(edge) {
+  return _graphEndpointId(edge?.to ?? edge?.target);
+}
+
+function _obsidianGraphVisibleData() {
+  const graph = _obsidianGraphData();
+  const selected = _selectedGraphNodeId;
+  const depth = Math.max(1, Math.min(3, Number(_obsidianGraphDepth) || 2));
+  if (_obsidianGraphScope !== 'local' || !selected || !graph.nodes.some((node) => node.id === selected)) return graph;
+
+  const adjacency = new Map();
+  for (const node of graph.nodes) adjacency.set(node.id, new Set());
+  for (const edge of graph.edges) {
+    const from = _graphEdgeFrom(edge);
+    const to = _graphEdgeTo(edge);
+    if (!from || !to) continue;
+    adjacency.get(from)?.add(to);
+    adjacency.get(to)?.add(from);
+  }
+
+  const keep = new Set([selected]);
+  const queue = [{ id: selected, level: 0 }];
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || current.level >= depth) continue;
+    for (const next of adjacency.get(current.id) || []) {
+      if (keep.has(next)) continue;
+      keep.add(next);
+      queue.push({ id: next, level: current.level + 1 });
+    }
+  }
+
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((node) => keep.has(node.id)),
+    edges: graph.edges.filter((edge) => keep.has(_graphEdgeFrom(edge)) && keep.has(_graphEdgeTo(edge))),
+  };
+}
+
+function _obsidianGraphNodeStatus(node, noteMap, itemMap) {
+  const note = noteMap.get(node.id);
+  if (note) return _noteStatus(note);
+  const item = itemMap.get(node.id);
+  if (item?.status) return item.status;
+  if (node.kind === 'missing') return 'unresolved';
+  return node.status || 'stored';
+}
+
+function _obsidianGraphNodeKind(node, noteMap) {
+  const note = noteMap.get(node.id);
+  if (note) return _noteKind(note);
+  return node.kind || 'note';
+}
+
+function _obsidianGraphBaseColor(node) {
+  const status = String(node.status || '').toLowerCase();
+  if (status === 'blocked' || status === 'unresolved' || node.kind === 'missing') return '#fb7185';
+  if (status === 'pending' || node.kind === 'pending') return '#fbbf24';
+  if (status === 'approved' || node.kind === 'knowledge') return '#34d399';
+  if (node.kind === 'journal') return '#60a5fa';
+  if (node.kind === 'session') return '#a78bfa';
+  if (node.kind === 'requests' || node.kind === 'inbox') return '#38bdf8';
+  if (node.kind === 'ideas') return '#4ade80';
+  if (node.kind === 'council') return '#f59e0b';
+  if (node.kind === 'executions') return '#c084fc';
+  if (node.kind === 'verifications') return '#f87171';
+  return '#8bd3ff';
+}
+
+function _obsidianGraphNodeHaystack(node, noteMap, itemMap) {
+  const note = noteMap.get(node.id);
+  const item = itemMap.get(node.id);
+  return [
+    node.label,
+    node.id,
+    node.kind,
+    node.group,
+    note?.path,
+    note?.title,
+    ...(note?.tags || []),
+    ...(note?.headings || []).map((heading) => heading.text),
+    note?.frontmatter?.genre,
+    note?.frontmatter?.type,
+    item?.title,
+    item?.body,
+    item?.evidence,
+    ...(item?.tags || []),
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function _obsidianGraph3dData(graph = _obsidianGraphVisibleData()) {
+  const noteMap = new Map((_obsidianState?.notes || []).map((note) => [note.path, note]));
+  const itemMap = new Map(_allWorkspaceItems().map((item) => [item.id, item]));
+  const degree = new Map();
+  for (const edge of graph.edges || []) {
+    const from = _graphEdgeFrom(edge);
+    const to = _graphEdgeTo(edge);
+    if (!from || !to) continue;
+    degree.set(from, (degree.get(from) || 0) + 1);
+    degree.set(to, (degree.get(to) || 0) + 1);
+  }
+
+  const sourceNodes = graph.nodes || [];
+  const totalNodes = Math.max(1, sourceNodes.length);
+  const nodes = sourceNodes.map((node, index) => {
+    const note = noteMap.get(node.id);
+    const item = itemMap.get(node.id);
+    const kind = _obsidianGraphNodeKind(node, noteMap);
+    const status = _obsidianGraphNodeStatus(node, noteMap, itemMap);
+    const tagCount = (note?.tags || item?.tags || node.tags || []).length;
+    const angle = (index / totalNodes) * Math.PI * 2;
+    const ring = 58 + (index % 3) * 18;
+    const x = Math.cos(angle) * ring;
+    const y = Math.sin(angle) * ring;
+    const z = ((index % 5) - 2) * 20;
+    return {
+      id: node.id,
+      name: node.label || note?.title || item?.title || node.id,
+      label: node.label || note?.title || item?.title || node.id,
+      path: note?.path || node.path || '',
+      kind,
+      status,
+      group: node.group || kind,
+      tags: note?.tags || item?.tags || node.tags || [],
+      degree: degree.get(node.id) || 0,
+      val: Math.min(2.8, 0.95 + (degree.get(node.id) || 0) * 0.22 + Math.min(tagCount, 6) * 0.08 + (node.weight || 0) * 0.05),
+      haystack: _obsidianGraphNodeHaystack({ ...node, kind }, noteMap, itemMap),
+      x,
+      y,
+      z,
+      fx: x,
+      fy: y,
+      fz: z,
+    };
+  });
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const links = (graph.edges || []).map((edge) => {
+    const source = _graphEdgeFrom(edge);
+    const target = _graphEdgeTo(edge);
+    if (!nodeIds.has(source) || !nodeIds.has(target)) return null;
+    return {
+      source,
+      target,
+      type: edge.type || 'link',
+    };
+  }).filter(Boolean);
+  for (const node of nodes) node.neighbors = [];
+  for (const link of links) {
+    const source = _graphEndpointId(link.source);
+    const target = _graphEndpointId(link.target);
+    byId.get(source)?.neighbors.push(target);
+    byId.get(target)?.neighbors.push(source);
+  }
+  return { nodes, links, mode: graph.mode };
+}
+
+function _obsidianGraphMatchesQuery(node) {
+  const query = _obsidianGraphQuery.trim().toLowerCase();
+  return !query || String(node.haystack || '').includes(query);
+}
+
+function _obsidianGraphNodeMuted(node) {
+  if (!_obsidianGraphMatchesQuery(node)) return true;
+  if (!_selectedGraphNodeId) return false;
+  return node.id !== _selectedGraphNodeId && !(node.neighbors || []).includes(_selectedGraphNodeId);
+}
+
+function _obsidianGraphLinkConnectsSelected(link) {
+  if (!_selectedGraphNodeId) return false;
+  return _graphEndpointId(link.source) === _selectedGraphNodeId || _graphEndpointId(link.target) === _selectedGraphNodeId;
+}
+
+function _obsidianGraphLinkMuted(link) {
+  const source = typeof link.source === 'object' ? link.source : null;
+  const target = typeof link.target === 'object' ? link.target : null;
+  if ((_obsidianGraphQuery.trim() && source && target) && (!_obsidianGraphMatchesQuery(source) || !_obsidianGraphMatchesQuery(target))) return true;
+  return Boolean(_selectedGraphNodeId && !_obsidianGraphLinkConnectsSelected(link));
+}
+
+function _obsidianGraph3dNodeColor(node) {
+  if (node.id === _selectedGraphNodeId) return '#ffffff';
+  if (_obsidianGraphNodeMuted(node)) return '#26343f';
+  return _obsidianGraphBaseColor(node);
+}
+
+function _obsidianGraph3dNodeVal(node) {
+  if (node.id === _selectedGraphNodeId) return Math.max(2.4, (node.val || 1.2) + 0.8);
+  if (_obsidianGraphNodeMuted(node)) return 0.45;
+  return node.val || 1.2;
+}
+
+function _obsidianGraph3dLinkColor(link) {
+  if (_obsidianGraphLinkConnectsSelected(link)) return '#f5b4bd';
+  if (_obsidianGraphLinkMuted(link)) return '#22303a';
+  if (link.type === 'promoted') return '#34d399';
+  if (link.type === 'session') return '#a78bfa';
+  return '#7dd3fc';
+}
+
+function _obsidianGraph3dLinkWidth(link) {
+  if (_obsidianGraphLinkConnectsSelected(link)) return 1.8;
+  if (_obsidianGraphLinkMuted(link)) return 0.15;
+  return 0.7;
+}
+
+function _refreshObsidian3dGraphStyles() {
+  if (!_obsidianGraphInstance) return;
+  _obsidianGraphInstance
+    .nodeColor(_obsidianGraph3dNodeColor)
+    .nodeVal(_obsidianGraph3dNodeVal)
+    .linkColor(_obsidianGraph3dLinkColor)
+    .linkWidth(_obsidianGraph3dLinkWidth)
+    .linkDirectionalArrowLength((link) => (_obsidianGraphArrows && !_obsidianGraphLinkMuted(link) ? 3.5 : 0))
+    .linkDirectionalParticles((link) => (_obsidianGraphLinkConnectsSelected(link) ? 2 : 0));
+}
+
+function _renderObsidianGraphSvgParts(graph = _obsidianGraphVisibleData()) {
+  const { nodes, edges, mode } = graph;
+  if (!nodes.length) return '<div class="workspace-empty-inline">No vault notes yet. Create a note or sync workspace cards into the Markdown vault.</div>';
   const width = 760;
   const height = 390;
   const lanes = {
+    note: { x: 210, color: '#a7f3d0' },
+    missing: { x: 620, color: '#fca5a5' },
     requests: { x: 110, color: '#7dd3fc' },
     ideas: { x: 280, color: '#a7f3d0' },
     council: { x: 450, color: '#fcd34d' },
@@ -318,7 +832,7 @@ function _renderObsidianGraph() {
   const counts = {};
   const positioned = nodes.map((node) => {
     counts[node.kind] = (counts[node.kind] || 0) + 1;
-    const lane = lanes[node.kind] || lanes.requests;
+    const lane = lanes[node.kind] || lanes.note;
     const offset = counts[node.kind] - 1;
     const y = 62 + (offset % 8) * 38 + Math.floor(offset / 8) * 12;
     return { ...node, x: lane.x, y: Math.min(height - 38, y), color: lane.color };
@@ -328,38 +842,265 @@ function _renderObsidianGraph() {
     const from = byId.get(edge.from);
     const to = byId.get(edge.to);
     if (!from || !to) return '';
-    return `<path class="obsidian-graph-edge" data-from="${_escape(edge.from)}" data-to="${_escape(edge.to)}" data-type="${_escape(edge.type)}" d="M${from.x},${from.y} C${(from.x + to.x) / 2},${from.y} ${(from.x + to.x) / 2},${to.y} ${to.x},${to.y}" />`;
+    const connected = _selectedGraphNodeId && (edge.from === _selectedGraphNodeId || edge.to === _selectedGraphNodeId);
+    const muted = _selectedGraphNodeId && !connected;
+    return `<path class="obsidian-graph-edge ${connected ? 'is-selected' : ''} ${muted ? 'is-muted' : ''}" data-from="${_escape(edge.from)}" data-to="${_escape(edge.to)}" data-type="${_escape(edge.type)}" d="M${from.x},${from.y} C${(from.x + to.x) / 2},${from.y} ${(from.x + to.x) / 2},${to.y} ${to.x},${to.y}" />`;
   }).join('');
   const circles = positioned.map((node) => {
     const radius = Math.min(15, 7 + node.weight);
-    return `<g class="obsidian-graph-node" data-id="${_escape(node.id)}" data-kind="${_escape(node.kind)}" data-title="${_escape(node.label)}" transform="translate(${node.x} ${node.y})">
+    const selected = _selectedGraphNodeId === node.id;
+    const muted = _selectedGraphNodeId && !selected && !edges.some((edge) => (edge.from === _selectedGraphNodeId && edge.to === node.id) || (edge.to === _selectedGraphNodeId && edge.from === node.id));
+    return `<g class="obsidian-graph-node ${selected ? 'is-selected' : ''} ${muted ? 'is-muted' : ''}" data-id="${_escape(node.id)}" data-kind="${_escape(node.kind)}" data-title="${_escape(node.label)}" transform="translate(${node.x} ${node.y})">
       <circle r="${radius}" fill="${node.color}" />
       <text x="${radius + 6}" y="4">${_escape(node.label.slice(0, 28))}</text>
     </g>`;
   }).join('');
-  const legend = Object.entries(COLLECTIONS).map(([kind, meta]) => `<span><i style="background:${lanes[kind]?.color || '#ddd'}"></i>${meta.label}</span>`).join('');
-  return `
-    <div class="obsidian-graph-toolbar">
-      <input id="obsidian-graph-search" placeholder="Search graph nodes, tags, and decisions" />
-      <select id="obsidian-graph-scope" title="Graph scope" aria-label="Graph scope">
-        <option value="global">Global graph</option>
-        <option value="local">Local graph</option>
-      </select>
-      <label>Depth <input id="obsidian-graph-depth" type="range" min="1" max="3" value="2" /></label>
-      <label><input id="obsidian-graph-arrows" type="checkbox" checked /> Arrows</label>
-    </div>
-    <div class="obsidian-graph-shell">
+  const legend = mode === 'vault'
+    ? [
+        `<span><i style="background:${lanes.note.color}"></i>Markdown notes</span>`,
+        `<span><i style="background:${lanes.missing.color}"></i>Unresolved wikilinks</span>`,
+      ].join('')
+    : Object.entries(COLLECTIONS).map(([kind, meta]) => `<span><i style="background:${lanes[kind]?.color || '#ddd'}"></i>${meta.label}</span>`).join('');
+  return {
+    svg: `
       <svg class="obsidian-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Workspace knowledge graph">
         <defs><marker id="obsidian-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" /></marker></defs>
         ${lines}
         ${circles}
-      </svg>
+      </svg>`,
+    legend,
+  };
+}
+
+function _renderObsidianGraphFallback() {
+  const parts = _renderObsidianGraphSvgParts();
+  if (typeof parts === 'string') return parts;
+  return `
+    <div class="obsidian-graph-toolbar">
+      <input id="obsidian-graph-search" value="${_escape(_obsidianGraphQuery)}" placeholder="Search graph nodes, tags, and decisions" />
+      <select id="obsidian-graph-scope" title="Graph scope" aria-label="Graph scope">
+        <option value="global" ${_obsidianGraphScope === 'global' ? 'selected' : ''}>Global graph</option>
+        <option value="local" ${_obsidianGraphScope === 'local' ? 'selected' : ''}>Local graph</option>
+      </select>
+      <label>Depth <input id="obsidian-graph-depth" type="range" min="1" max="3" value="${_escape(_obsidianGraphDepth)}" /></label>
+      <label><input id="obsidian-graph-arrows" type="checkbox" ${_obsidianGraphArrows ? 'checked' : ''} /> Arrows</label>
+    </div>
+    <div class="obsidian-graph-shell">
+      ${parts.svg}
+      <aside class="obsidian-graph-inspector">
+        <h3>Local context</h3>
+        <div id="obsidian-graph-selected">Select a node to inspect backlinks and outgoing links.</div>
+      </aside>
+    </div>
+    <div class="obsidian-graph-legend">${parts.legend}</div>`;
+}
+
+function _renderObsidianGraph() {
+  const graph = _obsidianGraphVisibleData();
+  if (!graph.nodes.length) return '<div class="workspace-empty-inline">No vault notes yet. Create a note or sync workspace cards into the Markdown vault.</div>';
+  const fallback = _renderObsidianGraphSvgParts(graph);
+  const fallbackSvg = typeof fallback === 'string' ? fallback : fallback.svg;
+  const legend = typeof fallback === 'string' ? '' : fallback.legend;
+  return `
+    <div class="obsidian-graph-toolbar">
+      <input id="obsidian-graph-search" value="${_escape(_obsidianGraphQuery)}" placeholder="Search graph nodes, tags, and decisions" />
+      <select id="obsidian-graph-scope" title="Graph scope" aria-label="Graph scope">
+        <option value="global" ${_obsidianGraphScope === 'global' ? 'selected' : ''}>Global graph</option>
+        <option value="local" ${_obsidianGraphScope === 'local' ? 'selected' : ''}>Local graph</option>
+      </select>
+      <label>Depth <input id="obsidian-graph-depth" type="range" min="1" max="3" value="${_escape(_obsidianGraphDepth)}" /></label>
+      <label><input id="obsidian-graph-arrows" type="checkbox" ${_obsidianGraphArrows ? 'checked' : ''} /> Arrows</label>
+      <button type="button" class="doclib-card-action-btn" data-action="obsidian-graph-fit">Fit</button>
+    </div>
+    <div class="obsidian-graph-error" data-obsidian-graph-error ${_obsidianGraphError ? '' : 'hidden'}>
+      <strong>3D graph fallback</strong>
+      <span data-obsidian-graph-error-text>${_escape(_obsidianGraphError || 'The 3D graph could not start.')}</span>
+      <button type="button" class="doclib-card-action-btn" data-action="obsidian-graph-retry">Retry 3D</button>
+    </div>
+    <div class="obsidian-graph-shell obsidian-graph-shell-3d">
+      <div class="obsidian-graph-stage" data-obsidian-graph-stage>
+        <div class="obsidian-graph-loading" data-obsidian-graph-loading>Launching 3D knowledge graph...</div>
+        <div class="obsidian-graph-3d" data-obsidian-graph-3d aria-label="3D Obsidian knowledge graph"></div>
+        <div class="obsidian-graph-fallback" data-obsidian-graph-fallback hidden>${fallbackSvg}</div>
+      </div>
       <aside class="obsidian-graph-inspector">
         <h3>Local context</h3>
         <div id="obsidian-graph-selected">Select a node to inspect backlinks and outgoing links.</div>
       </aside>
     </div>
     <div class="obsidian-graph-legend">${legend}</div>`;
+}
+
+function _supportsWebGL() {
+  try {
+    const canvas = document.createElement('canvas');
+    return Boolean(window.WebGLRenderingContext && (canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+  } catch {
+    return false;
+  }
+}
+
+function _loadObsidianGraph3dLibrary() {
+  if (window.ForceGraph3D) return Promise.resolve(window.ForceGraph3D);
+  if (_obsidianGraphScriptPromise) return _obsidianGraphScriptPromise;
+  _obsidianGraphScriptPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${OBSIDIAN_GRAPH_3D_SCRIPT}"]`);
+    const script = existing || document.createElement('script');
+    const done = () => {
+      if (window.ForceGraph3D) resolve(window.ForceGraph3D);
+      else reject(new Error('ForceGraph3D did not attach to the page.'));
+    };
+    script.addEventListener('load', done, { once: true });
+    script.addEventListener('error', () => reject(new Error('3D graph bundle failed to load.')), { once: true });
+    if (!existing) {
+      script.src = OBSIDIAN_GRAPH_3D_SCRIPT;
+      script.async = true;
+      document.head.appendChild(script);
+    } else if (window.ForceGraph3D) {
+      done();
+    }
+  });
+  return _obsidianGraphScriptPromise;
+}
+
+function _destroyObsidian3dGraph() {
+  _obsidianGraphMountToken += 1;
+  if (_obsidianGraphResizeObserver) {
+    _obsidianGraphResizeObserver.disconnect();
+    _obsidianGraphResizeObserver = null;
+  }
+  if (_obsidianGraphInstance) {
+    try {
+      _obsidianGraphInstance.pauseAnimation?.();
+      _obsidianGraphInstance._destructor?.();
+    } catch {}
+    _obsidianGraphInstance = null;
+  }
+}
+
+function _setObsidianGraphFallback(message) {
+  const modal = _modal(OBSIDIAN_MODAL_ID);
+  const stage = modal?.querySelector('[data-obsidian-graph-stage]');
+  const fallback = modal?.querySelector('[data-obsidian-graph-fallback]');
+  const graph = modal?.querySelector('[data-obsidian-graph-3d]');
+  const loading = modal?.querySelector('[data-obsidian-graph-loading]');
+  const error = modal?.querySelector('[data-obsidian-graph-error]');
+  const errorText = modal?.querySelector('[data-obsidian-graph-error-text]');
+  if (fallback) fallback.hidden = false;
+  if (graph) graph.hidden = true;
+  if (loading) loading.hidden = true;
+  if (stage) stage.classList.add('is-fallback');
+  if (error) error.hidden = false;
+  if (errorText) errorText.textContent = message;
+  _obsidianGraphError = message;
+}
+
+function _graphElementSize(element) {
+  const rect = element?.getBoundingClientRect?.();
+  const parentRect = element?.parentElement?.getBoundingClientRect?.();
+  return {
+    width: Math.max(320, Math.floor(rect?.width || parentRect?.width || 720)),
+    height: Math.max(320, Math.floor(rect?.height || parentRect?.height || 430)),
+  };
+}
+
+function _focusObsidian3dNode(node) {
+  if (!_obsidianGraphInstance || !node) return;
+  const distance = 130;
+  const length = Math.hypot(node.x || 0, node.y || 0, node.z || 0) || 1;
+  const ratio = 1 + distance / length;
+  _obsidianGraphInstance.cameraPosition(
+    { x: (node.x || 0) * ratio, y: (node.y || 0) * ratio, z: (node.z || 0) * ratio },
+    { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
+    800,
+  );
+}
+
+function _resetObsidian3dCamera(transitionMs = 700) {
+  _obsidianGraphInstance?.cameraPosition?.(
+    { x: 0, y: 0, z: 320 },
+    { x: 0, y: 0, z: 0 },
+    transitionMs,
+  );
+}
+
+async function _mountObsidian3dGraph(selectNode) {
+  if (_obsidianTab !== 'graph') return;
+  const modal = _modal(OBSIDIAN_MODAL_ID);
+  const mount = modal?.querySelector('[data-obsidian-graph-3d]');
+  if (!mount) return;
+  const token = ++_obsidianGraphMountToken;
+  const loading = modal.querySelector('[data-obsidian-graph-loading]');
+  const fallback = modal.querySelector('[data-obsidian-graph-fallback]');
+  const stage = modal.querySelector('[data-obsidian-graph-stage]');
+  if (loading) loading.hidden = false;
+  if (fallback) fallback.hidden = true;
+  if (stage) stage.classList.remove('is-fallback');
+
+  if (!_supportsWebGL()) {
+    _setObsidianGraphFallback('WebGL is unavailable in this Chrome session, so the cockpit is showing the SVG fallback.');
+    return;
+  }
+
+  try {
+    const ForceGraph3D = await _loadObsidianGraph3dLibrary();
+    if (token !== _obsidianGraphMountToken) return;
+    const data = _obsidianGraph3dData();
+    const size = _graphElementSize(mount);
+    const graph = new ForceGraph3D(mount, {
+      controlType: 'orbit',
+      rendererConfig: { antialias: true, alpha: true },
+    });
+    _obsidianGraphInstance = graph;
+    graph
+      .width(size.width)
+      .height(size.height)
+      .backgroundColor('#071014')
+      .showNavInfo(false)
+      .graphData({ nodes: data.nodes, links: data.links })
+      .nodeLabel((node) => `${node.name}<br><span>${node.kind} / ${node.status}</span>`)
+      .nodeRelSize(5)
+      .nodeResolution(18)
+      .nodeOpacity(0.88)
+      .linkOpacity(0.42)
+      .linkDirectionalArrowRelPos(0.72)
+      .linkDirectionalParticleWidth(1.6)
+      .linkDirectionalParticleSpeed(0.006)
+      .onNodeHover((node) => {
+        mount.classList.toggle('is-hovering-node', Boolean(node));
+      })
+      .onNodeClick(async (node) => {
+        await selectNode(node.id, { openNote: true, renderNote: false });
+        _refreshObsidian3dGraphStyles();
+        _focusObsidian3dNode(node);
+      })
+      .onBackgroundClick(() => {
+        _selectedGraphNodeId = '';
+        _refreshObsidian3dGraphStyles();
+      });
+    graph.d3Force?.('charge')?.strength?.(-42);
+    graph.d3Force?.('link')?.distance?.(76);
+    graph.d3VelocityDecay?.(0.55);
+    _resetObsidian3dCamera(0);
+    _refreshObsidian3dGraphStyles();
+    if (loading) loading.hidden = true;
+
+    _obsidianGraphResizeObserver = new ResizeObserver(() => {
+      if (!_obsidianGraphInstance || !mount.isConnected) return;
+      const next = _graphElementSize(mount);
+      _obsidianGraphInstance.width(next.width).height(next.height);
+    });
+    _obsidianGraphResizeObserver.observe(mount);
+    window.setTimeout(() => {
+      if (_obsidianGraphInstance && token === _obsidianGraphMountToken) _resetObsidian3dCamera(500);
+    }, 280);
+    window.setTimeout(() => {
+      if (_obsidianGraphInstance && token === _obsidianGraphMountToken) _resetObsidian3dCamera(700);
+    }, 1300);
+  } catch (err) {
+    if (token !== _obsidianGraphMountToken) return;
+    _setObsidianGraphFallback(err?.message || 'The 3D graph could not start, so the cockpit is showing the SVG fallback.');
+  }
 }
 
 function _body(id) {
@@ -378,45 +1119,309 @@ function _renderLoading(body) {
   return false;
 }
 
+function _highlightText(value, query) {
+  const text = String(value || '');
+  const q = String(query || '').trim();
+  if (!q) return _escape(text);
+  const index = text.toLowerCase().indexOf(q.toLowerCase());
+  if (index < 0) return _escape(text);
+  return `${_escape(text.slice(0, index))}<mark>${_escape(text.slice(index, index + q.length))}</mark>${_escape(text.slice(index + q.length))}`;
+}
+
+function _cleanSearchSnippet(value) {
+  return String(value || '')
+    .replace(/^---[\s\S]*?---\s*/, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function _renderObsidianMetrics() {
+  const health = _obsidianHealth();
+  return `
+    <div class="obsidian-health-strip" aria-label="Vault health">
+      ${_statusChip('notes', health.notes.length, 'notes')}
+      ${_statusChip('pending', health.pending.length, health.pending.length ? 'pending' : '')}
+      ${_statusChip('knowledge', health.knowledge.length, 'knowledge')}
+      ${_statusChip('journals', health.journal.length, 'journal')}
+      ${_statusChip('links', health.links, 'links')}
+      <span class="obsidian-chip is-path" title="${_escape(_obsidianState?.root || '')}"><strong>${_escape(_formatShortDate(health.last) || 'never')}</strong>last update</span>
+    </div>`;
+}
+
+function _renderObsidianTabs() {
+  const health = _obsidianHealth();
+  const graphCount = _obsidianState?.graph?.nodes?.length || 0;
+  const activityCount = _recentActivityNotes().length;
+  const tabs = [
+    ['vault', 'Vault', health.notes.length],
+    ['curation', 'Curation', health.pending.length],
+    ['graph', 'Graph', graphCount],
+    ['activity', 'Activity', activityCount],
+  ];
+  return `
+    <nav class="obsidian-cockpit-tabs" aria-label="Obsidian cockpit tabs">
+      ${tabs.map(([id, label, count]) => `
+        <button type="button" class="obsidian-cockpit-tab ${_obsidianTab === id ? 'is-active' : ''}" data-action="obsidian-tab" data-tab="${id}" aria-pressed="${_obsidianTab === id ? 'true' : 'false'}">
+          ${_escape(label)} <span>${_escape(count)}</span>
+        </button>`).join('')}
+    </nav>`;
+}
+
+function _renderObsidianNoteList({ notes = _filteredObsidianNotes(), compact = false } = {}) {
+  if (_obsidianLoading) {
+    return '<div class="obsidian-empty">Loading vault notes...</div>';
+  }
+  if (!notes.length) {
+    return '<div class="obsidian-empty">No matching notes.</div>';
+  }
+  return notes.map((note) => {
+    const tags = (note.tags || []).slice(0, compact ? 2 : 4).map((tag) => `<span>${_escape(tag)}</span>`).join('');
+    const status = _noteStatus(note);
+    const kind = _noteKind(note);
+    const meta = note.frontmatter || {};
+    const typeLine = [meta.genre || kind, meta.type].filter(Boolean).join(' / ');
+    return `
+      <button type="button" class="obsidian-note-row is-${_escape(kind)} ${note.path === _selectedNotePath ? 'is-selected' : ''}" data-note-path="${_escape(note.path)}" title="${_escape(note.path)}">
+        <span class="obsidian-note-row-head">
+          <strong>${_highlightText(note.title || note.path, _obsidianQuery)}</strong>
+          <time>${_escape(_formatShortDate(note.updated_at))}</time>
+        </span>
+        <small>${_highlightText(note.path, _obsidianQuery)}</small>
+        <span class="obsidian-note-row-meta"><b>${_escape(status)}</b>${typeLine ? `<i>${_escape(typeLine)}</i>` : ''}</span>
+        ${tags ? `<span class="obsidian-note-tags">${tags}</span>` : ''}
+      </button>`;
+  }).join('');
+}
+
+function _renderObsidianNoteEditor() {
+  const note = _activeNote();
+  if (_obsidianLoading) {
+    return '<div class="obsidian-empty">Loading note editor...</div>';
+  }
+  if (!note) {
+    return '<div class="obsidian-empty">Select or create a Markdown note.</div>';
+  }
+  return `
+    <form class="obsidian-note-editor" data-note-editor>
+      <div class="obsidian-note-editor-head">
+        <label>
+          <span>Path</span>
+          <input name="path" value="${_escape(note.path || '')}" placeholder="Folder/Note.md" />
+        </label>
+        <div class="obsidian-vault-actions">
+          <span class="obsidian-save-state ${_obsidianDirty ? 'is-dirty' : ''}" data-obsidian-save-state>${_obsidianDirty ? 'Unsaved' : 'Saved'}</span>
+          <button type="submit" class="doclib-card-action-btn obsidian-primary-action">Save</button>
+          <button type="button" class="doclib-card-action-btn obsidian-danger-action" data-action="obsidian-delete-note">Delete</button>
+        </div>
+      </div>
+      <textarea name="content" spellcheck="false">${_escape(note.content || '')}</textarea>
+    </form>`;
+}
+
+function _renderNoteLinkList(paths) {
+  if (!paths?.length) return '<em>No links yet.</em>';
+  const notePaths = new Set((_obsidianState?.notes || []).map((note) => note.path));
+  return `<div class="obsidian-link-list">${paths.map((path) => (
+    notePaths.has(path)
+      ? `<button type="button" data-action="obsidian-open-note-path" data-note-path="${_escape(path)}">${_escape(path)}</button>`
+      : `<span>${_escape(path)}</span>`
+  )).join('')}</div>`;
+}
+
+function _renderObsidianContext(note = _activeNote()) {
+  if (!note) {
+    return '<aside class="obsidian-context-panel"><div class="obsidian-empty">No note selected.</div></aside>';
+  }
+  const tags = (note.tags || []).map((tag) => `<span>${_escape(tag)}</span>`).join('');
+  const headings = (note.headings || []).slice(0, 8).map((heading) => `<li>${'#'.repeat(heading.level)} ${_escape(heading.text)}</li>`).join('');
+  const tasks = (note.tasks || []).slice(0, 8).map((task) => `<li>${task.done ? '[x]' : '[ ]'} ${_escape(task.text)}</li>`).join('');
+  const fmRows = _frontmatterRows(note);
+  return `
+    <aside class="obsidian-context-panel">
+      <div class="obsidian-context-head">
+        <span>${_escape(_noteKind(note))}</span>
+        <strong>${_escape(_noteStatus(note))}</strong>
+      </div>
+      <section>
+        <h3>Tags</h3>
+        <div class="obsidian-note-tags">${tags || '<em>No tags</em>'}</div>
+      </section>
+      <section>
+        <h3>YAML</h3>
+        <div class="obsidian-yaml-summary">${fmRows || '<em>No frontmatter fields.</em>'}</div>
+      </section>
+      <section>
+        <h3>Backlinks</h3>
+        ${_renderNoteLinkList(note.backlinks || [])}
+      </section>
+      <section>
+        <h3>Outgoing</h3>
+        ${_renderNoteLinkList(note.outgoing_paths || [])}
+      </section>
+      <section>
+        <h3>Headings</h3>
+        ${headings ? `<ul>${headings}</ul>` : '<em>No headings.</em>'}
+      </section>
+      <section>
+        <h3>Tasks</h3>
+        ${tasks ? `<ul>${tasks}</ul>` : '<em>No tasks.</em>'}
+      </section>
+    </aside>`;
+}
+
+function _renderPendingKnowledge() {
+  const notes = _pendingCurationNotes();
+  if (!notes.length) {
+    return '<div class="obsidian-empty">No pending curated knowledge.</div>';
+  }
+  return notes.map((note) => `
+    <article class="obsidian-curation-card" data-curation-path="${_escape(note.path)}">
+      <div>
+        <strong>${_escape(note.title || note.path)}</strong>
+        <span>${_escape(note.frontmatter?.genre || 'event')} - ${_escape(note.frontmatter?.type || '')}</span>
+        <small>${_escape(note.frontmatter?.source || 'obsidian')} ${note.frontmatter?.confidence ? ` / ${_escape(note.frontmatter.confidence)}` : ''}</small>
+      </div>
+      <div class="obsidian-vault-actions">
+        <button type="button" class="doclib-card-action-btn" data-action="obsidian-open-curation">Open</button>
+        <button type="button" class="doclib-card-action-btn" data-action="obsidian-approve-curation">Approve</button>
+        <button type="button" class="doclib-card-action-btn obsidian-danger-action" data-action="obsidian-reject-curation">Reject</button>
+      </div>
+    </article>`).join('');
+}
+
+function _renderObsidianSearchResults() {
+  const q = _obsidianQuery.trim();
+  if (!q) return '';
+  if (_obsidianSearching) return '<div class="obsidian-search-panel"><div class="obsidian-empty">Searching knowledge...</div></div>';
+  if (_obsidianSearchError) return `<div class="obsidian-search-panel"><div class="obsidian-error">Search failed: ${_escape(_obsidianSearchError)}</div></div>`;
+  const results = _obsidianSearchResults || [];
+  return `
+    <section class="obsidian-search-panel">
+      <div class="obsidian-pane-title"><strong>Search results</strong><span>${_escape(results.length)} found</span></div>
+      <div class="obsidian-search-results">
+        ${results.length ? results.map((result) => `
+          <button type="button" class="obsidian-search-result" data-action="obsidian-open-search-result" data-note-path="${_escape(result.path)}">
+            <span><strong>${_highlightText(result.title || result.path, q)}</strong><b>${_escape(result.reason || 'match')}</b></span>
+            <small>${_highlightText(result.path, q)}</small>
+            <p>${_highlightText(_cleanSearchSnippet(result.snippet).slice(0, 220), q)}</p>
+          </button>`).join('') : '<div class="obsidian-empty">No matching knowledge found.</div>'}
+      </div>
+    </section>`;
+}
+
+function _renderObsidianActivity() {
+  const notes = _recentActivityNotes();
+  if (!notes.length) return '<div class="obsidian-empty">No journal or knowledge activity yet.</div>';
+  return notes.map((note) => `
+    <button type="button" class="obsidian-activity-row is-${_escape(_noteKind(note))}" data-action="obsidian-open-note-path" data-note-path="${_escape(note.path)}">
+      <span><strong>${_escape(note.title || note.path)}</strong><b>${_escape(_noteStatus(note))}</b></span>
+      <small>${_escape(note.path)}</small>
+      <time>${_escape(_formatLongDate(note.updated_at))}</time>
+    </button>`).join('');
+}
+
+function _renderObsidianVaultTab() {
+  const notes = _filteredObsidianNotes();
+  return `
+    <div class="obsidian-cockpit-grid">
+      <aside class="obsidian-rail">
+        <div class="obsidian-pane-title"><strong>Notes</strong><span>${_escape(notes.length)}</span></div>
+        <div class="obsidian-note-list">${_renderObsidianNoteList({ notes })}</div>
+        <div class="obsidian-rail-queue">
+          <div class="obsidian-pane-title"><strong>Pending</strong><span>${_escape(_pendingCurationNotes().length)}</span></div>
+          <div class="obsidian-curation-list is-compact">${_renderPendingKnowledge()}</div>
+        </div>
+      </aside>
+      <main class="obsidian-main-panel">
+        ${_obsidianQuery.trim() ? _renderObsidianSearchResults() : _renderObsidianNoteEditor()}
+      </main>
+      ${_renderObsidianContext()}
+    </div>`;
+}
+
+function _renderObsidianCurationTab() {
+  return `
+    <div class="obsidian-cockpit-grid">
+      <aside class="obsidian-rail">
+        <div class="obsidian-pane-title"><strong>Review queue</strong><span>${_escape(_pendingCurationNotes().length)}</span></div>
+        <div class="obsidian-curation-list">${_renderPendingKnowledge()}</div>
+      </aside>
+      <main class="obsidian-main-panel">${_renderObsidianNoteEditor()}</main>
+      ${_renderObsidianContext()}
+    </div>`;
+}
+
+function _renderObsidianGraphTab() {
+  return `
+    <div class="obsidian-graph-workspace">
+      ${_renderObsidianGraph()}
+    </div>`;
+}
+
+function _renderObsidianActivityTab() {
+  return `
+    <div class="obsidian-cockpit-grid">
+      <aside class="obsidian-rail">
+        <div class="obsidian-pane-title"><strong>Recent activity</strong><span>${_escape(_recentActivityNotes().length)}</span></div>
+        <div class="obsidian-activity-list">${_renderObsidianActivity()}</div>
+      </aside>
+      <main class="obsidian-main-panel">${_renderObsidianNoteEditor()}</main>
+      ${_renderObsidianContext()}
+    </div>`;
+}
+
+function _renderObsidianStage() {
+  if (_obsidianTab === 'curation') return _renderObsidianCurationTab();
+  if (_obsidianTab === 'graph') return _renderObsidianGraphTab();
+  if (_obsidianTab === 'activity') return _renderObsidianActivityTab();
+  return _renderObsidianVaultTab();
+}
+
 function _renderObsidian() {
   const body = _body(OBSIDIAN_MODAL_ID);
   if (!body) return;
-  if (_renderLoading(body)) return;
+  _clampSurface(_modal(OBSIDIAN_MODAL_ID));
+  _destroyObsidian3dGraph();
+  if (_loading && _obsidianLoading && !_state && !_obsidianState) {
+    body.innerHTML = '<div class="admin-card workspace-empty">Loading Obsidian vault...</div>';
+    return;
+  }
 
-  const summary = Object.entries(COLLECTIONS).map(([kind, meta]) => `
-    <article class="workspace-stat-card doclib-card" data-kind="${kind}">
-      <div class="workspace-stat-header"><span>${meta.label}</span><strong>${_collectionCount(kind)}</strong></div>
-      <p>${meta.empty}</p>
-    </article>`).join('');
-  const notes = OBSIDIAN_NOTES.map((note) => `
-    <article class="doclib-card workspace-note-card">
-      <div class="doclib-card-header"><strong>${_escape(note.title)}</strong></div>
-      <p>${_escape(note.body)}</p>
-    </article>`).join('');
-  const recent = Object.entries(COLLECTIONS)
-    .flatMap(([kind, meta]) => (_state[kind] || []).slice(0, 2).map((item) => ({ ...item, kind, label: meta.label })))
-    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
-    .slice(0, 8)
-    .map((item) => _renderArtifactRow(item))
-    .join('') || '<div class="workspace-empty-inline">No workspace artifacts yet.</div>';
-
+  const health = _obsidianHealth();
+  const root = _obsidianState?.root || 'Vault not loaded';
   body.innerHTML = `
-    <section class="admin-card workspace-panel">
-      <div class="doclib-desc">Obsidian replaces Notes as the durable workspace brain: requests, decisions, and proof in one Odysseus-native surface.</div>
-      <div class="doclib-grid workspace-stat-grid">${summary}</div>
+    <section class="obsidian-cockpit" aria-label="Obsidian knowledge cockpit">
+      <header class="obsidian-cockpit-top">
+        <div>
+          <span>Canonical knowledge</span>
+          <h2>Knowledge cockpit</h2>
+          <p title="${_escape(root)}">${_escape(root)}</p>
+        </div>
+        <div class="obsidian-cockpit-actions">
+          <button type="button" class="doclib-card-action-btn" data-action="obsidian-refresh">Refresh</button>
+          <button type="button" class="doclib-card-action-btn" data-action="obsidian-new-note">New note</button>
+          <button type="button" class="doclib-card-action-btn obsidian-primary-action" data-action="obsidian-sync-workspace">Sync workspace</button>
+        </div>
+      </header>
+      ${_renderObsidianMetrics()}
+      <div class="obsidian-command-bar">
+        <label>
+          <span>Search</span>
+          <input type="search" data-action="obsidian-search" value="${_escape(_obsidianQuery)}" placeholder="Search notes, fixes, decisions, events" autocomplete="off" />
+        </label>
+        ${_obsidianQuery ? '<button type="button" class="doclib-card-action-btn" data-action="obsidian-clear-search">Clear</button>' : ''}
+        <div class="obsidian-command-status">
+          <span>${_escape(health.pending.length)} pending</span>
+          <span>${_escape(health.links)} graph links</span>
+          <span>${_obsidianDirty ? 'Unsaved edit' : 'Ready'}</span>
+        </div>
+      </div>
+      ${_renderObsidianTabs()}
+      <div class="obsidian-cockpit-stage" data-obsidian-stage="${_escape(_obsidianTab)}">
+        ${_renderObsidianStage()}
+      </div>
     </section>
-    <section class="admin-card workspace-panel workspace-graph-panel">
-      <h2>Knowledge graph</h2>
-      ${_renderObsidianGraph()}
-    </section>
-    <section class="admin-card workspace-panel">
-      <h2>Vault handoff</h2>
-      <div class="doclib-grid workspace-note-grid">${notes}</div>
-    </section>
-    <section class="admin-card workspace-panel workspace-panel-fill">
-      <h2>Recent context</h2>
-      <div class="doclib-grid workspace-list">${recent}</div>
-    </section>`;
+  `;
   _wireObsidian();
 }
 
@@ -768,15 +1773,153 @@ function _renderCard(item) {
 function _wireObsidian() {
   const modal = _modal(OBSIDIAN_MODAL_ID);
   if (!modal) return;
-  const graph = _graphData();
+  const graph = _obsidianGraphData();
   const itemMap = new Map(_allWorkspaceItems().map((item) => [item.id, item]));
+  const noteMap = new Map((_obsidianState?.notes || []).map((note) => [note.path, note]));
+  const nodeMap = new Map((graph.nodes || []).map((node) => [node.id, node]));
   const nodes = [...modal.querySelectorAll('.obsidian-graph-node')];
   const edges = [...modal.querySelectorAll('.obsidian-graph-edge')];
   const inspector = modal.querySelector('#obsidian-graph-selected');
 
+  const openNotePath = async (path, { clearSearch = false, render = true } = {}) => {
+    if (!path || !_confirmDiscardObsidianChanges()) return;
+    _selectedNotePath = path;
+    _noteDraft = null;
+    _clearObsidianDirty();
+    if (clearSearch) {
+      _obsidianQuery = '';
+      _obsidianSearchResults = [];
+      _obsidianSearchError = '';
+      _obsidianSearching = false;
+    }
+    await _loadSelectedObsidianNote(path, { render });
+  };
+
+  modal.querySelectorAll('[data-action="obsidian-tab"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      _obsidianTab = btn.dataset.tab || 'vault';
+      _renderObsidian();
+    });
+  });
+
+  modal.querySelector('[data-action="obsidian-refresh"]')?.addEventListener('click', async () => {
+    if (!_confirmDiscardObsidianChanges()) return;
+    _clearObsidianDirty();
+    await _loadObsidian();
+  });
+
+  modal.querySelector('[data-action="obsidian-new-note"]')?.addEventListener('click', () => {
+    if (!_confirmDiscardObsidianChanges()) return;
+    _clearObsidianDirty();
+    _noteDraft = _newNoteTemplate();
+    _selectedNotePath = _noteDraft.path;
+    _obsidianTab = 'vault';
+    _renderObsidian();
+  });
+
+  modal.querySelector('[data-action="obsidian-sync-workspace"]')?.addEventListener('click', async () => {
+    if (!_confirmDiscardObsidianChanges()) return;
+    _clearObsidianDirty();
+    await _syncWorkspaceToObsidian();
+  });
+
+  const searchInput = modal.querySelector('[data-action="obsidian-search"]');
+  searchInput?.addEventListener('input', (event) => {
+    _scheduleObsidianSearch(event.target.value || '');
+  });
+  searchInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') event.preventDefault();
+  });
+
+  modal.querySelector('[data-action="obsidian-clear-search"]')?.addEventListener('click', () => {
+    _obsidianQuery = '';
+    _obsidianSearchResults = [];
+    _obsidianSearchError = '';
+    _obsidianSearching = false;
+    window.clearTimeout(_obsidianSearchTimer);
+    _renderObsidian();
+  });
+
+  modal.querySelectorAll('.obsidian-note-row').forEach((row) => {
+    row.addEventListener('click', async () => {
+      await openNotePath(row.dataset.notePath || '');
+    });
+  });
+
+  modal.querySelectorAll('[data-action="obsidian-open-note-path"], [data-action="obsidian-open-search-result"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await openNotePath(btn.dataset.notePath || '', { clearSearch: btn.dataset.action === 'obsidian-open-search-result' });
+    });
+  });
+
+  const editor = modal.querySelector('[data-note-editor]');
+  editor?.addEventListener('input', () => {
+    const path = editor.querySelector('[name="path"]')?.value?.trim() || '';
+    const content = editor.querySelector('[name="content"]')?.value ?? '';
+    _obsidianDirty = true;
+    _obsidianEditorDraft = {
+      originalPath: _selectedNotePath || _noteDraft?.path || path,
+      path,
+      content,
+    };
+    const state = modal.querySelector('[data-obsidian-save-state]');
+    if (state) {
+      state.textContent = 'Unsaved';
+      state.classList.add('is-dirty');
+    }
+    const status = modal.querySelector('.obsidian-command-status span:last-child');
+    if (status) status.textContent = 'Unsaved edit';
+  });
+
+  editor?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await _saveObsidianNote(event.currentTarget);
+  });
+
+  modal.querySelector('[data-action="obsidian-delete-note"]')?.addEventListener('click', async () => {
+    await _deleteObsidianNote();
+  });
+
+  modal.querySelectorAll('.obsidian-curation-card').forEach((card) => {
+    const path = card.dataset.curationPath || '';
+    card.querySelector('[data-action="obsidian-open-curation"]')?.addEventListener('click', async () => {
+      await openNotePath(path);
+    });
+    card.querySelector('[data-action="obsidian-approve-curation"]')?.addEventListener('click', async () => {
+      if (!_confirmDiscardObsidianChanges()) return;
+      await _changeCurationStatus(path, 'approve');
+    });
+    card.querySelector('[data-action="obsidian-reject-curation"]')?.addEventListener('click', async () => {
+      if (!_confirmDiscardObsidianChanges()) return;
+      await _changeCurationStatus(path, 'reject');
+    });
+  });
+
   const describeNode = (id) => {
-    const item = itemMap.get(id);
     if (!inspector) return;
+    if (graph.mode === 'vault') {
+      const note = noteMap.get(id);
+      const node = nodeMap.get(id);
+      if (!note) {
+        inspector.innerHTML = `
+          <strong>${_escape(node?.title || id.replace(/^missing:/, ''))}</strong>
+          <span>Unresolved wikilink</span>
+          <p>Create this note to close the graph edge.</p>`;
+        return;
+      }
+      const outgoing = graph.edges.filter((edge) => edge.from === id).map((edge) => nodeMap.get(edge.to)?.title || edge.to);
+      const incoming = graph.edges.filter((edge) => edge.to === id).map((edge) => nodeMap.get(edge.from)?.title || edge.from);
+      inspector.innerHTML = `
+        <strong>${_escape(note.title || note.path)}</strong>
+        <span>${_escape(note.path)}</span>
+        <p>${_escape((note.headings || []).map((heading) => heading.text).slice(0, 3).join(' / ') || 'Markdown vault note')}</p>
+        <h4>Backlinks</h4>
+        ${incoming.length ? `<ul>${incoming.map((name) => `<li>${_escape(name)}</li>`).join('')}</ul>` : '<em>No incoming links yet.</em>'}
+        <h4>Outgoing links</h4>
+        ${outgoing.length ? `<ul>${outgoing.map((name) => `<li>${_escape(name)}</li>`).join('')}</ul>` : '<em>No outgoing links yet.</em>'}`;
+      return;
+    }
+    const item = itemMap.get(id);
     if (!item) {
       inspector.innerHTML = '<strong>Council session</strong><p>Connects artifacts produced by the same group run.</p>';
       return;
@@ -793,7 +1936,13 @@ function _wireObsidian() {
       ${outgoing.length ? `<ul>${outgoing.map((name) => `<li>${_escape(name)}</li>`).join('')}</ul>` : '<em>No outgoing links yet.</em>'}`;
   };
 
-  const selectNode = (id) => {
+  const selectNode = async (id, { openNote = true, renderNote = false } = {}) => {
+    _selectedGraphNodeId = id || '';
+    if (graph.mode === 'vault' && noteMap.has(id) && openNote) {
+      await openNotePath(id, { render: renderNote });
+      describeNode(id);
+      return;
+    }
     nodes.forEach((node) => node.classList.toggle('is-selected', node.dataset.id === id));
     edges.forEach((edge) => {
       const connected = edge.dataset.from === id || edge.dataset.to === id;
@@ -807,19 +1956,124 @@ function _wireObsidian() {
     node.addEventListener('click', () => selectNode(node.dataset.id));
   });
 
+  if (_selectedGraphNodeId && inspector) {
+    describeNode(_selectedGraphNodeId);
+  }
+
   const search = modal.querySelector('#obsidian-graph-search');
   search?.addEventListener('input', () => {
-    const query = search.value.trim().toLowerCase();
+    _obsidianGraphQuery = search.value || '';
+    const query = _obsidianGraphQuery.trim().toLowerCase();
     nodes.forEach((node) => {
       const item = itemMap.get(node.dataset.id);
-      const haystack = `${node.dataset.title || ''} ${node.dataset.kind || ''} ${(item?.tags || []).join(' ')} ${item?.body || ''}`.toLowerCase();
+      const note = noteMap.get(node.dataset.id);
+      const haystack = `${node.dataset.title || ''} ${node.dataset.kind || ''} ${(item?.tags || note?.tags || []).join(' ')} ${item?.body || ''} ${(note?.headings || []).map((heading) => heading.text).join(' ')}`.toLowerCase();
       node.classList.toggle('is-muted', Boolean(query) && !haystack.includes(query));
     });
+    _refreshObsidian3dGraphStyles();
+  });
+
+  modal.querySelector('#obsidian-graph-scope')?.addEventListener('change', (event) => {
+    _obsidianGraphScope = event.target.value === 'local' ? 'local' : 'global';
+    _renderObsidian();
+  });
+
+  modal.querySelector('#obsidian-graph-depth')?.addEventListener('input', (event) => {
+    _obsidianGraphDepth = Math.max(1, Math.min(3, Number(event.target.value) || 2));
+    if (_obsidianGraphScope === 'local') _renderObsidian();
   });
 
   modal.querySelector('#obsidian-graph-arrows')?.addEventListener('change', (event) => {
+    _obsidianGraphArrows = Boolean(event.target.checked);
     modal.querySelector('.obsidian-graph-svg')?.classList.toggle('hide-arrows', !event.target.checked);
+    _refreshObsidian3dGraphStyles();
   });
+
+  modal.querySelector('[data-action="obsidian-graph-fit"]')?.addEventListener('click', () => {
+    _resetObsidian3dCamera(700);
+  });
+
+  modal.querySelector('[data-action="obsidian-graph-retry"]')?.addEventListener('click', () => {
+    _obsidianGraphError = '';
+    _obsidianGraphScriptPromise = null;
+    _renderObsidian();
+  });
+
+  _mountObsidian3dGraph(selectNode);
+}
+
+async function _saveObsidianNote(form) {
+  const path = form?.querySelector('[name="path"]')?.value?.trim() || '';
+  const content = form?.querySelector('[name="content"]')?.value ?? '';
+  if (!path) {
+    uiModule.showToast?.('Note path is required');
+    return;
+  }
+  try {
+    const note = await _request(`/api/obsidian/notes/${_noteUrl(path)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    });
+    _selectedNotePath = note.path;
+    _obsidianNoteDetails[note.path] = note;
+    _noteDraft = null;
+    _clearObsidianDirty();
+    uiModule.showToast?.('Obsidian note saved');
+    await _loadObsidian();
+  } catch (err) {
+    uiModule.showToast?.(`Obsidian save failed: ${err.message}`);
+  }
+}
+
+async function _deleteObsidianNote() {
+  const note = _activeNote();
+  if (!note?.path) return;
+  if (_noteDraft) {
+    _noteDraft = null;
+    _clearObsidianDirty();
+    _ensureSelectedNote();
+    _renderObsidian();
+    return;
+  }
+  if (!window.confirm(`Delete ${note.path}?`)) return;
+  try {
+    await _request(`/api/obsidian/notes/${_noteUrl(note.path)}`, { method: 'DELETE' });
+    delete _obsidianNoteDetails[note.path];
+    _selectedNotePath = '';
+    _noteDraft = null;
+    _clearObsidianDirty();
+    uiModule.showToast?.('Obsidian note deleted');
+    await _loadObsidian();
+  } catch (err) {
+    uiModule.showToast?.(`Obsidian delete failed: ${err.message}`);
+  }
+}
+
+async function _syncWorkspaceToObsidian() {
+  try {
+    const result = await _request('/api/obsidian/workspace/sync', { method: 'POST' });
+    uiModule.showToast?.(`Workspace synced: ${result.created || 0} created, ${result.updated || 0} updated, ${result.skipped || 0} skipped`);
+    await _loadObsidian();
+  } catch (err) {
+    uiModule.showToast?.(`Workspace sync failed: ${err.message}`);
+  }
+}
+
+async function _changeCurationStatus(path, action) {
+  if (!path) return;
+  try {
+    const result = await _request(`/api/obsidian/curation/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+    uiModule.showToast?.(`Knowledge ${action === 'approve' ? 'approved' : 'rejected'}: ${result.title || path}`);
+    _selectedNotePath = result.path || '';
+    _noteDraft = null;
+    _clearObsidianDirty();
+    await _loadObsidian();
+  } catch (err) {
+    uiModule.showToast?.(`Curation ${action} failed: ${err.message}`);
+  }
 }
 
 function _wireIdeaLoop() {
@@ -1024,6 +2278,7 @@ export function openObsidian() {
   _registerObsidian();
   _renderObsidian();
   if (!_state) _load();
+  if (!_obsidianState) _loadObsidian();
 }
 
 export function openIdeaLoop() {
@@ -1087,6 +2342,14 @@ export function init() {
   if (_bound) return;
   _bound = true;
   window.workspaceModule = workspaceModule;
+  window.addEventListener('resize', () => {
+    window.clearTimeout(_surfaceResizeTimer);
+    _surfaceResizeTimer = window.setTimeout(() => {
+      _clampSurface(_modal(OBSIDIAN_MODAL_ID));
+      _clampSurface(_modal(IDEA_LOOP_MODAL_ID));
+      _renderOpenSurfaces();
+    }, 120);
+  });
 }
 
 const workspaceModule = { init, open, openObsidian, openIdeaLoop, refreshAndOpenIdeaLoop, close, closeObsidian, closeIdeaLoop };
