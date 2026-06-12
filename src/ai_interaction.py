@@ -917,11 +917,11 @@ async def do_manage_session(content: str, session_id: Optional[str] = None, owne
 
 
 # ---------------------------------------------------------------------------
-# Memory management tool
+# Obsidian-backed knowledge management tool
 # ---------------------------------------------------------------------------
 
 async def do_manage_memory(content: str, session_id: Optional[str] = None, owner: Optional[str] = None) -> Dict:
-    """Manage memories: list, add, edit, delete, search.
+    """Manage durable Obsidian-backed knowledge: list, add, edit, delete, search.
 
     Content format:
       Line 1: action (list|add|edit|delete|search)
@@ -949,8 +949,8 @@ async def do_manage_memory(content: str, session_id: Optional[str] = None, owner
         if category_filter:
             memories = [m for m in memories if m.get("category", "").lower() == category_filter]
         if not memories:
-            return {"results": "No memories found" + (f" in category '{category_filter}'" if category_filter else "") + "."}
-        result_lines = [f"Found {len(memories)} memory entries:\n"]
+            return {"results": "No Obsidian knowledge entries found" + (f" in category '{category_filter}'" if category_filter else "") + "."}
+        result_lines = [f"Found {len(memories)} Obsidian knowledge entries:\n"]
         for m in memories[:100]:
             cat = m.get("category", "fact")
             mid = m.get("id", "?")[:8]
@@ -988,7 +988,7 @@ async def do_manage_memory(content: str, session_id: Optional[str] = None, owner
             logger.debug("memory_added event dispatch failed", exc_info=True)
 
         return {"action": "add", "memory_id": entry["id"],
-                "results": f"Memory added: [{category}] {text}"}
+                "results": f"Knowledge added to Obsidian: [{category}] {text}"}
 
     elif action == "edit":
         if len(lines) < 3:
@@ -1022,7 +1022,7 @@ async def do_manage_memory(content: str, session_id: Optional[str] = None, owner
                 pass
 
         return {"action": "edit", "memory_id": memory_id,
-                "results": f"Memory updated: {new_text}"}
+                "results": f"Obsidian knowledge updated: {new_text}"}
 
     elif action == "delete":
         if len(lines) < 2:
@@ -1054,7 +1054,7 @@ async def do_manage_memory(content: str, session_id: Optional[str] = None, owner
                 pass
 
         return {"action": "delete", "memory_id": memory_id,
-                "results": f"Memory '{memory_id}' deleted"}
+                "results": f"Obsidian knowledge '{memory_id}' archived"}
 
     elif action == "search":
         if len(lines) < 2:
@@ -1070,8 +1070,8 @@ async def do_manage_memory(content: str, session_id: Optional[str] = None, owner
             results = [m for m in memories if query_lower in m.get("text", "").lower()][:20]
 
         if not results:
-            return {"results": f"No memories found matching '{query}'."}
-        result_lines = [f"Found {len(results)} matching memories:\n"]
+            return {"results": f"No Obsidian knowledge found matching '{query}'."}
+        result_lines = [f"Found {len(results)} matching Obsidian knowledge entries:\n"]
         for m in results:
             cat = m.get("category", "fact")
             mid = m.get("id", "?")[:8]
@@ -1257,7 +1257,7 @@ async def do_ui_control(content: str, session_id: Optional[str] = None) -> Dict:
       switch_model <model>    — Change the model for the current session
       set_theme <preset>      — Apply a theme preset (dark, light, paper, nord, dracula, gruvbox, gpt, claude, lavender, etc.)
       create_theme <name> <bg> <fg> <panel> <border> <accent> [key=val ...] — Create custom theme. Optional key=val: advanced color overrides AND background effects: bgPattern=<none|dots|synapse|rain|constellations|perlin-flow|petals|sparkles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num>, bgEffectSize=<num>, frosted=true|false
-      open_panel <name>       — Open a panel (documents, gallery, email, sessions, notes, memories, skills, settings, cookbook)
+      open_panel <name>       — Open a panel (documents, gallery, email, sessions, notes/obsidian, knowledge/memory/skills, settings, cookbook)
       open_email_reply <uid> [folder] [reply|reply-all|ai-reply] — Open a reply draft document for an email; does not send
       get_toggles             — Return current toggle states (server-side knowledge)
     """
@@ -1458,7 +1458,7 @@ async def do_ui_control(content: str, session_id: Optional[str] = None) -> Dict:
 
     elif action == "open_panel":
         # Open a top-level panel/modal: documents/library, gallery,
-        # email, sessions, notes, memories, skills, settings, cookbook.
+        # email, sessions, notes/obsidian, knowledge/memory/skills, settings, cookbook.
         panel = parts[1].lower() if len(parts) > 1 else ""
         _panel_aliases = {
             "documents": "documents",
@@ -1476,14 +1476,18 @@ async def do_ui_control(content: str, session_id: Optional[str] = None) -> Dict:
             "sessions": "sessions",
             "chats": "sessions",
             "history": "sessions",
-            "notes": "notes",
-            "note": "notes",
+            "notes": "obsidian",
+            "note": "obsidian",
+            "obsidian": "obsidian",
+            "vault": "obsidian",
+            "knowledge": "obsidian",
+            "recall": "obsidian",
             "todo": "notes",
             "todos": "notes",
-            "memories": "memories",
-            "memory": "memories",
-            "brain": "memories",
-            "skills": "skills",
+            "memories": "obsidian",
+            "memory": "obsidian",
+            "brain": "obsidian",
+            "skills": "obsidian",
             "settings": "settings",
             "preferences": "settings",
             "cookbook": "cookbook",
@@ -1494,7 +1498,7 @@ async def do_ui_control(content: str, session_id: Optional[str] = None) -> Dict:
         }
         target = _panel_aliases.get(panel)
         if not target:
-            return {"error": f"Unknown panel '{panel}'. Valid: documents, gallery, email, sessions, notes, memories, skills, settings, cookbook."}
+            return {"error": f"Unknown panel '{panel}'. Valid: documents, gallery, email, sessions, notes, obsidian, knowledge, skills, settings, cookbook."}
         return {
             "ui_event": "open_panel",
             "panel": target,
@@ -1780,9 +1784,9 @@ async def dispatch_ai_tool(
         desc = f"manage_session: {action}"
         result = await do_manage_session(content, session_id, owner=owner)
 
-    elif tool == "manage_memory":
+    elif tool in ("manage_knowledge", "manage_memory"):
         action = content.split("\n")[0].strip()[:40]
-        desc = f"manage_memory: {action}"
+        desc = f"{tool}: {action}"
         result = await do_manage_memory(content, session_id, owner=owner)
 
     elif tool == "list_models":

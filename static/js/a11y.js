@@ -1,7 +1,7 @@
 // Accessibility enhancements for keyboard + screen-reader users.
 //
 // Several primary controls in Odysseus are authored as click-only <div>s
-// (most notably the whole sidebar navigation: New Chat, Search, Brain,
+// (most notably the whole sidebar navigation: New Chat, Search, Obsidian,
 // Calendar, Compare, Cookbook, Deep Research, Gallery, Library, Notes,
 // Tasks, Theme, plus the account row). <div>s are not in the tab order and
 // are not announced as buttons, so keyboard and screen-reader users cannot

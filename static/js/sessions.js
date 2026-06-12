@@ -78,6 +78,34 @@ function _deselectCurrentSession(sid) {
   if (window._updateSendBtnIcon) window._updateSendBtnIcon();
 }
 
+/** Clear a session pointer that no longer exists server-side. */
+function _clearStaleSessionState(sid) {
+  if (!sid) return;
+  if (currentSessionId === sid) {
+    currentSessionId = null;
+    try {
+      const chatHistory = uiModule.el('chat-history');
+      if (chatHistory) chatHistory.innerHTML = '';
+      const meta = uiModule.el('current-meta');
+      if (meta) meta.textContent = 'Odysseus Chat';
+    } catch {}
+  }
+  if (Storage.get('lastSessionId') === sid) Storage.remove('lastSessionId');
+  if (window.location.hash === `#${sid}`) {
+    history.replaceState(null, '', window.location.pathname);
+  }
+  try {
+    if (window.chatModule?.showWelcomeScreen) window.chatModule.showWelcomeScreen();
+  } catch {}
+  const submitBtn = document.querySelector('.send-btn');
+  if (submitBtn) {
+    submitBtn.dataset.mode = '';
+    delete submitBtn.dataset.phase;
+    submitBtn.classList.remove('recording', 'send-pending');
+  }
+  if (window._updateSendBtnIcon) window._updateSendBtnIcon();
+}
+
 // Initialize dependencies from app.js (no-op: dependencies now imported directly)
 export function initDependencies() {}
 

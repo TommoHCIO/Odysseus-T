@@ -18,6 +18,7 @@ NON_ADMIN_BLOCKED_TOOLS = {
     "read_file",
     "write_file",
     "search_chats",
+    "manage_knowledge",
     "manage_memory",
     "manage_skills",
     "manage_tasks",

@@ -23,7 +23,7 @@ class DataConfig(BaseSettings):
     data_dir: Path = Field(default=Path("data"), description="Main data directory")
     uploads_dir: Path = Field(default=Path("data/uploads"), description="Directory for uploaded files")
     sessions_file: Path = Field(default=Path("data/sessions.json"), description="Sessions storage file")
-    memory_file: Path = Field(default=Path("data/memory.json"), description="Memory storage file")
+    memory_file: Path = Field(default=Path("data/memory.json"), description="Legacy memory import file")
     memory_doc: Path = Field(default=Path("data/memory_doc.md"), description="Memory document file")
     personal_dir: Path = Field(default=Path("data/personal_docs"), description="Personal documents directory")
     runbook_dir: Path = Field(default=Path("data/personal_docs/runbook"), description="Runbook directory")

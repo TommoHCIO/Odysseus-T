@@ -3,8 +3,9 @@ memory_extractor.py
 
 Background auto-extraction of facts from chat conversations.
 After each LLM response, this module sends the last few messages to the LLM
-asking it to extract memorable facts, then stores them in both memory.json
-and the FAISS vector index.
+asking it to extract memorable facts, then stores them through the
+Obsidian-backed compatibility manager and derived recall index. Obsidian
+Markdown is the durable source of truth.
 
 Periodically audits all memories via LLM to consolidate duplicates,
 rewrite vague entries, and remove junk.
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def _tidy_state_path(memory_manager) -> str:
-    """Sidecar JSON next to memory.json that remembers the fingerprint of
+    """Legacy sidecar JSON that remembers the fingerprint of
     the last successfully-audited state per owner. Lets the audit short-
     circuit when nothing has changed since the previous tidy — running
     the LLM again on an already-clean list was wasting 30-120s per call
@@ -83,7 +84,7 @@ EXTRACT_SYSTEM_PROMPT = (
 CONTEXT_WINDOW = 6
 
 AUDIT_SYSTEM_PROMPT = (
-    "You are a memory database curator. Be CONSERVATIVE: remove only TRUE "
+    "You are an Obsidian knowledge curator. Be CONSERVATIVE: remove only TRUE "
     "duplicates and clearly useless entries. Every distinct fact must survive. "
     "When in doubt, KEEP the entry. Return the cleaned list.\n\n"
     "Rules:\n"

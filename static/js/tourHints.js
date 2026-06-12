@@ -9,7 +9,7 @@ const HINT_SEEN_KEY = 'odysseus-hint-drag-to-snap-seen';
 // Allow-list of modals where the snap/fullscreen hint makes sense.
 // These are the full-window "tool" modals where users commonly want to
 // reposition or fullscreen the pane (email, calendar, cookbook, gallery,
-// library, brain memories, tasks, theme, compare). Transient modals
+// library, Obsidian knowledge, tasks, theme, compare). Transient modals
 // like settings, prompts, rename dialogs, custom-preset picker, etc.
 // are excluded — opening those is task-focused and the snap tip would
 // be noise.
@@ -21,7 +21,7 @@ const SHOW_MODALS = new Set([
   'gallery-modal',
   'doclib-modal',
   'library-modal',     // chat-history library (sessions.js)
-  'memory-modal',      // brain / memories
+  'memory-modal',      // legacy knowledge alias
   'tasks-modal',
   'theme-modal',
 ]);

@@ -61,7 +61,7 @@ window.addEventListener('pageshow', clearFreshComposerRestore);
       hideOn('#overflow-doc-btn, #tool-doc-btn', privs.can_use_documents);
       // Research — sidebar tool + the in-input deep-research toggle.
       hideOn('#tool-research-btn, #research-toggle-btn', privs.can_use_research);
-      // Memory & skills (rail/tool button only — UI/API entry).
+      // Obsidian knowledge & skills (legacy hidden alias button only).
       hideOn('#tool-memory-btn', privs.can_manage_memory);
       // Agent mode toggle — force chat mode by hiding the Agent toggle button.
       if (privs.can_use_agent === false) {

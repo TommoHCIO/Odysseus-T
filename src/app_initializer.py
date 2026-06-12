@@ -45,6 +45,11 @@ def initialize_managers(base_dir: str, rag_manager=None) -> Dict[str, Any]:
     # Initialize core managers
     memory_manager = MemoryManager(DATA_DIR)
     skills_manager = SkillsManager(DATA_DIR)
+    try:
+        memory_manager.migrate_legacy_memory()
+        skills_manager.migrate_legacy_skills()
+    except Exception as e:
+        logger.warning("Brain-to-Obsidian migration skipped or incomplete: %s", e)
     session_manager = SessionManager(SESSIONS_FILE)
     set_session_manager(session_manager)  # Enable Session.add_message() persistence
     upload_handler = UploadHandler(base_dir, UPLOAD_DIR)
@@ -65,12 +70,12 @@ def initialize_managers(base_dir: str, rag_manager=None) -> Dict[str, Any]:
                 if existing:
                     memory_vector.rebuild(existing)
                     logger.info(f"Rebuilt memory vector index from {len(existing)} existing entries")
-            logger.info("MemoryVectorStore initialized")
+            logger.info("ObsidianRecallIndex initialized")
         else:
-            logger.warning("MemoryVectorStore DEGRADED: ChromaDB vector memory unavailable")
+            logger.warning("ObsidianRecallIndex DEGRADED: ChromaDB vector cache unavailable")
             memory_vector = None
     except Exception as e:
-        logger.warning(f"MemoryVectorStore DEGRADED: {e}")
+        logger.warning(f"ObsidianRecallIndex DEGRADED: {e}")
         memory_vector = None
 
     # Initialize processors

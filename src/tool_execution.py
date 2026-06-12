@@ -246,6 +246,7 @@ _MCP_ARG_PARSERS: Dict[str, callable] = {
     "read_file":      lambda c: {"path": c.split("\n")[0].strip()},
     "write_file":     _parse_write_file,
     "generate_image": _parse_generate_image,
+    "manage_knowledge": _parse_manage_memory,
     "manage_memory":  _parse_manage_memory,
 }
 
@@ -767,7 +768,7 @@ async def execute_tool_block(
         result = await do_search_chats(query, owner=owner)
     elif tool in ("chat_with_model", "create_session", "list_sessions",
                   "send_to_session", "pipeline",
-                  "manage_session", "manage_memory", "list_models",
+                  "manage_session", "manage_knowledge", "manage_memory", "list_models",
                   "ui_control", "ask_teacher"):
         from src.ai_interaction import dispatch_ai_tool
         desc, result = await dispatch_ai_tool(tool, content, session_id, owner=owner)

@@ -105,6 +105,18 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
     async def research_status(session_id: str, request: Request):
         user = _require_user(request)
         _validate_session_id(session_id)
+        entry = research_handler._active_tasks.get(session_id)
+        if entry is not None and entry.get("owner", "") != user:
+            raise HTTPException(404, "No research found for this session")
+        persisted = Path("data/deep_research") / f"{session_id}.json"
+        if entry is None and persisted.exists():
+            try:
+                if json.loads(persisted.read_text(encoding="utf-8")).get("owner") != user:
+                    raise HTTPException(404, "No research found for this session")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(404, "No research found for this session")
         if not _owns_in_memory(session_id, user):
             return {"status": "idle", "active": False, "session_id": session_id}
         status = research_handler.get_status(session_id)

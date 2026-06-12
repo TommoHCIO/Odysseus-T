@@ -1,7 +1,7 @@
 """
 memory_server.py
 
-MCP server exposing memory management (list, add, edit, delete, search).
+MCP server exposing Obsidian-backed knowledge management (list, add, edit, delete, search).
 Imports MemoryManager and MemoryVectorStore from the Odysseus codebase.
 """
 
@@ -49,7 +49,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="manage_memory",
-            description="Manage the user's memory system: list, add, edit, delete, or search memories.",
+            description="Deprecated compatibility alias for manage_knowledge. Reads and writes Obsidian-backed durable knowledge.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -68,13 +68,35 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["action"],
             },
-        )
+        ),
+        Tool(
+            name="manage_knowledge",
+            description="Preferred Obsidian-backed knowledge tool: list, add, edit, archive/delete, or search durable facts, preferences, project context, and references.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "add", "edit", "delete", "search"],
+                        "description": "The action to perform",
+                    },
+                    "text": {"type": "string", "description": "Knowledge text (add/edit) or search query (search)"},
+                    "memory_id": {"type": "string", "description": "Knowledge ID (edit/delete compatibility)"},
+                    "category": {
+                        "type": "string",
+                        "enum": ["fact", "event", "contact", "preference", "identity", "project", "goal", "task"],
+                        "description": "Legacy category hint mapped to an Obsidian knowledge genre",
+                    },
+                },
+                "required": ["action"],
+            },
+        ),
     ]
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name != "manage_memory":
+    if name not in {"manage_knowledge", "manage_memory"}:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
     _ensure_init()
@@ -89,11 +111,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if category_filter:
             memories = [m for m in memories if m.get("category", "").lower() == category_filter.lower()]
         if not memories:
-            msg = "No memories found"
+            msg = "No Obsidian knowledge entries found"
             if category_filter:
                 msg += f" in category '{category_filter}'"
             return [TextContent(type="text", text=msg + ".")]
-        lines = [f"Found {len(memories)} memory entries:\n"]
+        lines = [f"Found {len(memories)} Obsidian knowledge entries:\n"]
         for m in memories[:100]:
             cat = m.get("category", "fact")
             mid = m.get("id", "?")[:8]
@@ -109,7 +131,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         text = arguments.get("text", "")
         category = arguments.get("category", "fact")
         if not text:
-            return [TextContent(type="text", text="Error: Memory text cannot be empty")]
+            return [TextContent(type="text", text="Error: Knowledge text cannot be empty")]
         entry = _memory_manager.add_entry(text, source="ai_agent", category=category)
         memories = _memory_manager.load_all()
         memories.append(entry)
@@ -119,7 +141,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 _memory_vector.add(entry["id"], text)
             except Exception:
                 pass
-        return [TextContent(type="text", text=f"Memory added: [{category}] {text} (id: {entry['id'][:8]})")]
+        return [TextContent(type="text", text=f"Knowledge added: [{category}] {text} (id: {entry['id'][:8]})")]
 
     elif action == "edit":
         memory_id = arguments.get("memory_id", "")
@@ -137,7 +159,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 full_id = m["id"]
                 break
         if not found:
-            return [TextContent(type="text", text=f"Error: Memory '{memory_id}' not found")]
+            return [TextContent(type="text", text=f"Error: Knowledge '{memory_id}' not found")]
         _memory_manager.save(memories)
         if _memory_vector and _memory_vector.healthy and full_id:
             try:
@@ -145,7 +167,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 _memory_vector.add(full_id, new_text)
             except Exception:
                 pass
-        return [TextContent(type="text", text=f"Memory updated: {new_text}")]
+        return [TextContent(type="text", text=f"Knowledge updated: {new_text}")]
 
     elif action == "delete":
         memory_id = arguments.get("memory_id", "")
@@ -164,7 +186,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         original_len = len(memories)
         memories = [m for m in memories if not m.get("id", "").startswith(memory_id)]
         if len(memories) == original_len:
-            return [TextContent(type="text", text=f"Error: Memory '{memory_id}' not found")]
+            return [TextContent(type="text", text=f"Error: Knowledge '{memory_id}' not found")]
         _memory_manager.save(memories)
         if _memory_vector and _memory_vector.healthy and full_id:
             try:
@@ -173,7 +195,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 pass
         cat = f"[{deleted_category}] " if deleted_category else ""
         snippet = deleted_text if len(deleted_text) <= 120 else deleted_text[:117] + "..."
-        return [TextContent(type="text", text=f"Memory deleted: {cat}{snippet} (id: {memory_id})")]
+        return [TextContent(type="text", text=f"Knowledge archived: {cat}{snippet} (id: {memory_id})")]
 
     elif action == "search":
         query = arguments.get("text", "")
@@ -186,8 +208,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             query_lower = query.lower()
             results = [m for m in memories if query_lower in m.get("text", "").lower()][:20]
         if not results:
-            return [TextContent(type="text", text=f"No memories found matching '{query}'.")]
-        lines = [f"Found {len(results)} matching memories:\n"]
+            return [TextContent(type="text", text=f"No Obsidian knowledge found matching '{query}'.")]
+        lines = [f"Found {len(results)} matching knowledge entries:\n"]
         for m in results:
             cat = m.get("category", "fact")
             mid = m.get("id", "?")[:8]

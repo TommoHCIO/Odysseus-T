@@ -314,21 +314,61 @@ def fire_message_event(request, webhook_manager, session_id: str, sess, message:
     })
 
 
-def _obsidian_recall_context(user: Optional[str], message: str, *, agent_mode: bool, incognito: bool, session_id: str) -> Optional[str]:
+def _council_recall_query(message: str) -> str:
+    text = str(message or "")
+    stage_match = re.search(
+        r"(\[ODYSSEUS_WORKSPACE_STAGE:(?:ideas|sketch|final)\][\s\S]*?)(?:\n\s*\[COUNCIL_PHASE:|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if stage_match:
+        text = stage_match.group(1)
+    elif "[ODYSSEUS_COUNCIL_PROTOCOL:deliberative]" in text:
+        parts = re.split(r"\n\s*\n", text, maxsplit=1)
+        if len(parts) == 2:
+            text = parts[1]
+
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if (
+            "ODYSSEUS_" in stripped
+            or re.match(r"(?i)^(question|task|request|source|when asked|remember):", stripped)
+            or re.search(r"(?i)\b(remember|recall|preference|fix|solution|problem|canary|exactly)\b", stripped)
+        ):
+            lines.append(stripped)
+    cleaned = "\n".join(lines).strip()
+    return cleaned[:3000] if cleaned else text[:3000]
+
+
+def _obsidian_recall_context(
+    user: Optional[str],
+    message: str,
+    *,
+    agent_mode: bool,
+    council_mode: bool = False,
+    incognito: bool,
+    session_id: str,
+) -> Optional[str]:
     if incognito:
         return None
     try:
         from src.obsidian_knowledge import log_event, search_knowledge
 
         limit = 12 if agent_mode else 6
-        found = search_knowledge(user or "__single__", message or "", limit=limit)
+        query = _council_recall_query(message) if council_mode else str(message or "")[:3000]
+        found = search_knowledge(user or "__single__", query, limit=limit)
         results = found.get("results") or []
         if not results:
             return None
         lines = [
             "Relevant Obsidian canonical knowledge. Treat these notes as user-owned context; prefer curated Knowledge notes over raw Journal notes when they conflict.",
-            "",
         ]
+        if council_mode:
+            lines.append("Council instruction: use these notes before answering NO_MATCH; when a matching note gives an exact answer for the task identifier, quote that answer exactly.")
+        lines.append("")
         for item in results[:limit]:
             snippet = str(item.get("snippet") or "").strip()
             if len(snippet) > 900:
@@ -340,13 +380,13 @@ def _obsidian_recall_context(user: Optional[str], message: str, *, agent_mode: b
                 f"  Snippet: {snippet}",
                 "",
             ])
-        event_type = "agent.context_injected" if agent_mode else "chat.context_injected"
+        event_type = "council.context_injected" if council_mode else ("agent.context_injected" if agent_mode else "chat.context_injected")
         log_event(
             user_key=user or "__single__",
             event_type=event_type,
             title="Obsidian context injected",
-            summary=f"Injected {len(results[:limit])} Obsidian note(s) into model context.",
-            source="chat",
+            summary=f"Injected {len(results[:limit])} Obsidian note(s) into {'Council' if council_mode else 'model'} context.",
+            source="council" if council_mode else "chat",
             source_id=session_id,
             tags=["odysseus/recall", "obsidian"],
             links={"notes": [{"path": item.get("path"), "score": item.get("score")} for item in results[:limit]]},
@@ -406,6 +446,7 @@ async def build_chat_context(
     webhook_manager=None,
     use_enhanced_message: bool = False,
     agent_mode: bool = False,
+    council_mode: bool = False,
 ) -> ChatContext:
     """Build the full context (preface + messages) for an LLM call.
 
@@ -478,15 +519,17 @@ async def build_chat_context(
     # Capture used memories immediately
     used_memories = getattr(chat_processor, '_last_used_memories', [])
 
-    obsidian_context = _obsidian_recall_context(
-        user,
-        preprocessed.text_for_context,
-        agent_mode=agent_mode,
-        incognito=incognito,
-        session_id=session_id,
-    )
-    if obsidian_context:
-        preface.append(untrusted_context_message("obsidian canonical knowledge", obsidian_context))
+    if mem_enabled:
+        obsidian_context = _obsidian_recall_context(
+            user,
+            preprocessed.text_for_context,
+            agent_mode=agent_mode,
+            council_mode=council_mode,
+            incognito=incognito,
+            session_id=session_id,
+        )
+        if obsidian_context:
+            preface.append(untrusted_context_message("obsidian canonical knowledge", obsidian_context))
 
     # Inject pre-fetched search context (compare mode)
     if search_context:

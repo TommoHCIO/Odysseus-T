@@ -1,12 +1,12 @@
 """Admin Danger Zone — per-category wipes.
 
 Each endpoint is admin-only and truncates exactly one domain so the
-user can selectively reset memory / skills / notes / etc. without
+user can selectively reset Obsidian knowledge / skills / notes / etc. without
 nuking everything. The catch-all `chats` endpoint mirrors the
 existing /api/sessions/all so the Danger Zone speaks one URL pattern.
 
 URL shape: DELETE /api/admin/wipe/{kind}
-Kinds: chats, memory, skills, notes, tasks, documents, gallery, calendar.
+Kinds: chats, memory/knowledge, skills, notes, tasks, documents, gallery, calendar.
 """
 
 import json
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 def _wipe_memory_files():
-    """Blank memory.json + drop the per-owner tidy-state sidecar so the
+    """Blank legacy memory.json + drop the per-owner tidy-state sidecar so the
     next audit doesn't try to diff against gone memories."""
     for name in ("memory.json", "memory_tidy_state.json"):
         p = os.path.join(DATA_DIR, name)
@@ -50,7 +50,23 @@ def _wipe_memory_files():
             else:
                 os.remove(p)
         except OSError as e:
-            logger.warning(f"Could not reset {name}: {e}")
+                logger.warning(f"Could not reset {name}: {e}")
+
+
+def _wipe_obsidian_subtree(section: str) -> int:
+    """Remove a managed Odysseus vault subtree while preserving Journal logs."""
+    count = 0
+    vault_root = os.path.join(DATA_DIR, "obsidian-vault")
+    if not os.path.isdir(vault_root):
+        return count
+    for user in os.listdir(vault_root):
+        base = os.path.join(vault_root, user, "Odysseus", section)
+        if not os.path.isdir(base):
+            continue
+        for _, _, files in os.walk(base):
+            count += sum(1 for name in files if name.lower().endswith(".md"))
+        _rmtree_quiet(base)
+    return count
 
 
 def _rmtree_quiet(path: str):
@@ -86,11 +102,12 @@ def setup_admin_wipe_routes(session_manager):
                     pass
                 return {"status": "deleted", "kind": kind, "count": count}
 
-            if kind == "memory":
+            if kind in {"memory", "knowledge"}:
                 count = db.query(Memory).count()
                 db.query(Memory).delete()
                 db.commit()
                 _wipe_memory_files()
+                count += _wipe_obsidian_subtree("Knowledge")
                 # Drop the vector store too so semantic search doesn't
                 # return ghosts. Lazy import — chromadb may not be
                 # initialised in every deployment.
@@ -101,14 +118,14 @@ def setup_admin_wipe_routes(session_manager):
                         mv.clear()
                 except Exception as e:
                     logger.info(f"Memory vector clear skipped: {e}")
-                return {"status": "deleted", "kind": kind, "count": count}
+                return {"status": "deleted", "kind": "knowledge", "count": count}
 
             if kind == "skills":
-                # Skills live as SKILL.md files under data/skills/. Drop
-                # the entire directory; the SkillsManager re-creates the
-                # tree on next write.
+                # Skills canonically live as Obsidian SKILL.md files. Drop
+                # that subtree plus legacy rollback files when explicitly
+                # requested by an admin.
                 skills_dir = os.path.join(DATA_DIR, "skills")
-                count = 0
+                count = _wipe_obsidian_subtree("Skills")
                 if os.path.isdir(skills_dir):
                     # Count SKILL.md files for the response — quick walk.
                     for _, _, files in os.walk(skills_dir):

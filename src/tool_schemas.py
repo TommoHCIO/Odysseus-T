@@ -306,8 +306,27 @@ FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "manage_knowledge",
+            "description": "Preferred Obsidian-backed knowledge tool: list, add, edit, delete/archive, or search durable user knowledge. Stores facts, identity, preferences, project context, goals, tasks, and references as Markdown notes in Obsidian.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["list", "add", "edit", "delete", "search"],
+                               "description": "The action to perform"},
+                    "text": {"type": "string", "description": "Knowledge text (for add/edit) or search query (for search)"},
+                    "memory_id": {"type": "string", "description": "Knowledge/memory ID (for edit/delete compatibility)"},
+                    "category": {"type": "string", "enum": ["fact", "event", "contact", "preference", "identity", "project", "goal", "task"],
+                                 "description": "Legacy category hint. The Obsidian adapter maps this to a knowledge genre."}
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "manage_memory",
-            "description": "Manage the user's memory system: list, add, edit, delete, or search memories. Memories persist across sessions.",
+            "description": "Deprecated compatibility alias for manage_knowledge. Reads and writes the same Obsidian-backed durable knowledge notes.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -315,8 +334,8 @@ FUNCTION_TOOL_SCHEMAS = [
                                "description": "The action to perform"},
                     "text": {"type": "string", "description": "Memory text (for add/edit) or search query (for search)"},
                     "memory_id": {"type": "string", "description": "Memory ID (for edit/delete)"},
-                    "category": {"type": "string", "enum": ["fact", "event", "contact", "preference"],
-                                 "description": "Memory category (for add/list filter)"}
+                    "category": {"type": "string", "enum": ["fact", "event", "contact", "preference", "identity", "project", "goal", "task"],
+                                 "description": "Legacy category hint, mapped to an Obsidian knowledge genre."}
                 },
                 "required": ["action"]
             }
@@ -340,13 +359,13 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "ui_control",
-            "description": "Control the user interface. Actions: toggle (turn tools on/off), open_panel (open a modal: documents/library, gallery, email, sessions, notes, memories/brain, skills, settings, cookbook), open_email_reply (open an email reply draft document; does NOT send), set_mode, switch_model, set_theme (presets: dark, light, midnight, paper, nord, monokai, gruvbox, dracula, cyberpunk, retrowave, forest, ocean, ume, copper, terminal, vaporwave, lavender, gpt, coffee, claude), create_theme (CREATE any custom theme with a name + colors object — pick distinctive, evocative hex colors that match the requested aesthetic, NOT generic defaults. The theme auto-applies after creation). When a user asks for ANY theme not in the preset list, ALWAYS use create_theme.",
+            "description": "Control the user interface. Actions: toggle (turn tools on/off), open_panel (open a modal: documents/library, gallery, email, sessions, notes/obsidian, knowledge/memory/brain, skills, settings, cookbook), open_email_reply (open an email reply draft document; does NOT send), set_mode, switch_model, set_theme (presets: dark, light, midnight, paper, nord, monokai, gruvbox, dracula, cyberpunk, retrowave, forest, ocean, ume, copper, terminal, vaporwave, lavender, gpt, coffee, claude), create_theme (CREATE any custom theme with a name + colors object — pick distinctive, evocative hex colors that match the requested aesthetic, NOT generic defaults. The theme auto-applies after creation). When a user asks for ANY theme not in the preset list, ALWAYS use create_theme.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {"type": "string", "enum": ["toggle", "open_panel", "open_email_reply", "set_mode", "switch_model", "set_theme", "create_theme", "get_toggles"],
                                "description": "The UI action. Use set_theme for presets, create_theme to build a custom theme with any hex colors"},
-                    "name": {"type": "string", "description": "For toggle: web, bash, research, incognito, document_editor (aliases: shell, search, deepresearch, documents). For open_panel: documents, gallery, email, sessions, notes, brain/memories, skills, settings, cookbook. For open_email_reply: email UID. For set_theme: a preset theme name. For create_theme: the custom theme name."},
+                    "name": {"type": "string", "description": "For toggle: web, bash, research, incognito, document_editor (aliases: shell, search, deepresearch, documents). For open_panel: documents, gallery, email, sessions, notes/obsidian, knowledge/memory/brain, skills, settings, cookbook. For open_email_reply: email UID. For set_theme: a preset theme name. For create_theme: the custom theme name."},
                     "value": {"type": "string", "description": "Value: on/off for toggle, agent/chat for set_mode, model name for switch_model, theme name for set_theme, or folder for open_email_reply"},
                     "uid": {"type": "string", "description": "Email UID for open_email_reply"},
                     "folder": {"type": "string", "description": "Email folder for open_email_reply (default INBOX)"},

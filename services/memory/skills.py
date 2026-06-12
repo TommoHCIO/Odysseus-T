@@ -1,13 +1,11 @@
 # services/memory/skills.py
 """Skills storage layer.
 
-Skills live on disk as `data/skills/<category>/<name>/SKILL.md` files with
-YAML frontmatter and a structured markdown body (When to Use / Procedure /
-Pitfalls / Verification). See `skill_format.py` for the format.
-
-Usage counters (`uses`, `last_used`) live in a sidecar
-`data/skills/_usage.json` keyed by skill name so the SKILL.md content
-doesn't churn on every retrieval.
+Canonical skills live as Obsidian Markdown under
+`data/obsidian-vault/<owner>/Odysseus/Skills/<category>/<name>/SKILL.md`.
+Legacy `data/skills/**/SKILL.md` files are import-only rollback artifacts.
+Each skill keeps the SKILL.md body shape (When to Use / Procedure / Pitfalls /
+Verification), while usage and audit metadata now live in YAML frontmatter.
 
 Ownership: skills declare `owner: <username>` in frontmatter. Single-user
 deployments can leave that blank.
@@ -23,6 +21,7 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 from .skill_format import Skill, slugify
@@ -60,26 +59,47 @@ def _to_float(x, default: float = 0.0) -> float:
 
 
 class SkillsManager:
-    """Read/write SKILL.md files under <data_dir>/skills/."""
+    """Read/write SKILL.md files, with Obsidian as the canonical app store."""
 
     def __init__(self, data_dir: str):
         self.data_dir = data_dir
-        self.skills_root = os.path.join(data_dir, "skills")
-        self.usage_file = os.path.join(self.skills_root, "_usage.json")
+        self.legacy_skills_root = os.path.join(data_dir, "skills")
+        self.skills_root = self.legacy_skills_root
+        self.obsidian_vault_root = os.path.join(data_dir, "obsidian-vault")
+        self.usage_file = os.path.join(self.legacy_skills_root, "_usage.json")
         self.legacy_file = os.path.join(data_dir, "skills.json")  # back-compat
-        os.makedirs(self.skills_root, exist_ok=True)
+        self.use_obsidian_storage = os.path.exists(self._storage_marker())
+        os.makedirs(self.legacy_skills_root, exist_ok=True)
 
     # ----------------------------------------------------------------------
     # Path helpers
     # ----------------------------------------------------------------------
 
-    def _skill_dir(self, category: str, name: str) -> str:
+    @staticmethod
+    def _safe_user_dir(owner: Optional[str]) -> str:
+        import re
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", owner or "__single__").strip("._")
+        return safe[:80] or "__single__"
+
+    def _storage_marker(self) -> str:
+        return os.path.join(self.obsidian_vault_root, "_system", "brain-to-obsidian-skills.json")
+
+    def _obsidian_skills_root(self, owner: Optional[str]) -> str:
+        return os.path.join(
+            self.obsidian_vault_root,
+            self._safe_user_dir(owner),
+            "Odysseus",
+            "Skills",
+        )
+
+    def _skill_dir(self, category: str, name: str, owner: Optional[str] = None) -> str:
         cat = slugify(category or "general", fallback="general")
         nm = slugify(name, fallback="skill")
-        return os.path.join(self.skills_root, cat, nm)
+        root = self._obsidian_skills_root(owner) if self.use_obsidian_storage else self.legacy_skills_root
+        return os.path.join(root, cat, nm)
 
-    def _skill_file(self, category: str, name: str) -> str:
-        return os.path.join(self._skill_dir(category, name), "SKILL.md")
+    def _skill_file(self, category: str, name: str, owner: Optional[str] = None) -> str:
+        return os.path.join(self._skill_dir(category, name, owner=owner), "SKILL.md")
 
     # ----------------------------------------------------------------------
     # Usage sidecar
@@ -107,42 +127,57 @@ class SkillsManager:
 
     def set_audit(self, name: str, verdict: str, by_teacher: bool = False,
                   worker_model: str = "", teacher_model: str = "") -> None:
-        """Record the last test/audit result for a skill in the usage sidecar
-        (so it surfaces in load() without touching SKILL.md). Drives the
-        'verified' check + teacher mark on the card."""
+        """Record the last test/audit result in SKILL.md frontmatter."""
         import time as _t
-        usage = self._load_usage()
-        e = usage.setdefault(name, {"uses": 0, "last_used": None})
-        e["audit_verdict"] = verdict
-        e["audit_by_teacher"] = bool(by_teacher)
+        updates = {
+            "audit_verdict": verdict,
+            "audit_by_teacher": bool(by_teacher),
+            "audited_at": _t.time(),
+        }
         if worker_model:
-            e["audit_worker_model"] = worker_model
+            updates["audit_worker_model"] = worker_model
         if teacher_model:
-            e["audit_teacher_model"] = teacher_model
-        e["audited_at"] = _t.time()
-        self._save_usage(usage)
+            updates["audit_teacher_model"] = teacher_model
+        owners = {s.get("owner") for s in self.load_all() if s.get("name") == name}
+        for owner in owners or {None}:
+            self.update_skill(name, updates, owner=owner)
 
     def set_necessity(self, name: str, necessary: bool,
                       redundant_with=None, reason: str = "") -> None:
-        """Record the advisory 'is this skill necessary?' judgment in the usage
-        sidecar. Surfaced on the card as a flag; never acts on the skill."""
-        usage = self._load_usage()
-        e = usage.setdefault(name, {"uses": 0, "last_used": None})
-        e["necessity"] = {
+        """Record the advisory 'is this skill necessary?' judgment in SKILL.md."""
+        necessity = {
             "necessary": bool(necessary),
             "redundant_with": list(redundant_with or []),
             "reason": str(reason or ""),
         }
-        self._save_usage(usage)
+        owners = {s.get("owner") for s in self.load_all() if s.get("name") == name}
+        for owner in owners or {None}:
+            self.update_skill(name, {"necessity": necessity}, owner=owner)
 
     # ----------------------------------------------------------------------
     # Disk scan
     # ----------------------------------------------------------------------
 
     def _iter_skill_files(self) -> Iterable[str]:
-        if not os.path.isdir(self.skills_root):
+        roots = []
+        if self.use_obsidian_storage:
+            roots.extend(
+                os.path.join(user_root, "Odysseus", "Skills")
+                for user_root in sorted(str(p) for p in Path(self.obsidian_vault_root).glob("*") if p.is_dir())
+            )
+        else:
+            roots.append(self.legacy_skills_root)
+        for scan_root in roots:
+            if not os.path.isdir(scan_root):
+                continue
+            for root, _dirs, files in os.walk(scan_root, followlinks=False):
+                if "SKILL.md" in files:
+                    yield os.path.join(root, "SKILL.md")
+
+    def _iter_legacy_skill_files(self) -> Iterable[str]:
+        if not os.path.isdir(self.legacy_skills_root):
             return
-        for root, _dirs, files in os.walk(self.skills_root, followlinks=False):
+        for root, _dirs, files in os.walk(self.legacy_skills_root, followlinks=False):
             if "SKILL.md" in files:
                 yield os.path.join(root, "SKILL.md")
 
@@ -156,12 +191,56 @@ class SkillsManager:
             return None
 
     def _write_skill(self, sk: Skill) -> str:
-        path = self._skill_file(sk.category or "general", sk.name)
+        path = self._skill_file(sk.category or "general", sk.name, owner=sk.owner)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         from core.atomic_io import atomic_write_text
         atomic_write_text(path, sk.to_markdown())
         sk.path = path
         return path
+
+    def migrate_legacy_skills(self) -> Dict[str, int]:
+        """Copy legacy data/skills SKILL.md files into Odysseus/Skills."""
+        usage = self._load_usage()
+        imported = 0
+        skipped = 0
+        previous = self.use_obsidian_storage
+        try:
+            self.use_obsidian_storage = True
+            for path in list(self._iter_legacy_skill_files()):
+                sk = self._read_skill(path)
+                if not sk:
+                    skipped += 1
+                    continue
+                u = usage.get(sk.name) or {}
+                sk.uses = int(u.get("uses", sk.uses or 0) or 0)
+                sk.last_used = u.get("last_used", sk.last_used)
+                sk.audit_verdict = u.get("audit_verdict", sk.audit_verdict)
+                sk.audit_by_teacher = bool(u.get("audit_by_teacher", sk.audit_by_teacher))
+                sk.audit_worker_model = u.get("audit_worker_model", sk.audit_worker_model)
+                sk.audit_teacher_model = u.get("audit_teacher_model", sk.audit_teacher_model)
+                sk.audited_at = u.get("audited_at", sk.audited_at)
+                sk.necessity = u.get("necessity", sk.necessity)
+                target = self._skill_file(sk.category, sk.name, owner=sk.owner)
+                if os.path.exists(target):
+                    skipped += 1
+                    continue
+                self._write_skill(sk)
+                imported += 1
+        finally:
+            self.use_obsidian_storage = previous
+        marker = self._storage_marker()
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        from core.atomic_io import atomic_write_json
+        atomic_write_json(marker, {
+            "migration": "brain-to-obsidian-skills",
+            "source": "data/skills",
+            "imported": imported,
+            "skipped": skipped,
+            "updated_at": int(time.time()),
+            "legacy_preserved": True,
+        }, indent=2)
+        self.use_obsidian_storage = True
+        return {"imported": imported, "skipped": skipped}
 
     def backfill_owner(self, primary_owner: str, valid_owners: Optional[set[str]] = None) -> int:
         """Assign legacy/unclaimed skill files to the primary owner.
@@ -201,23 +280,24 @@ class SkillsManager:
         """Return every skill as a plain dict, plus any legacy JSON entries."""
         usage = self._load_usage()
         out: List[Dict] = []
-        seen_names: set[str] = set()
+        seen_keys: set[tuple] = set()
         for path in self._iter_skill_files():
             sk = self._read_skill(path)
             if not sk:
                 continue
             d = sk.to_dict()
-            u = usage.get(sk.name) or {}
-            d["uses"] = int(u.get("uses", 0))
-            d["last_used"] = u.get("last_used")
-            d["audit_verdict"] = u.get("audit_verdict")
-            d["audit_by_teacher"] = bool(u.get("audit_by_teacher"))
-            d["audit_worker_model"] = u.get("audit_worker_model")
-            d["audit_teacher_model"] = u.get("audit_teacher_model")
-            d["audited_at"] = u.get("audited_at")
-            d["necessity"] = u.get("necessity")
+            if not self.use_obsidian_storage:
+                u = usage.get(sk.name) or {}
+                d["uses"] = int(u.get("uses", d.get("uses") or 0) or 0)
+                d["last_used"] = u.get("last_used", d.get("last_used"))
+                d["audit_verdict"] = u.get("audit_verdict", d.get("audit_verdict"))
+                d["audit_by_teacher"] = bool(u.get("audit_by_teacher", d.get("audit_by_teacher")))
+                d["audit_worker_model"] = u.get("audit_worker_model", d.get("audit_worker_model"))
+                d["audit_teacher_model"] = u.get("audit_teacher_model", d.get("audit_teacher_model"))
+                d["audited_at"] = u.get("audited_at", d.get("audited_at"))
+                d["necessity"] = u.get("necessity", d.get("necessity"))
             out.append(d)
-            seen_names.add(sk.name)
+            seen_keys.add((sk.owner or "", sk.name))
         # Legacy JSON entries — surfaced as draft, not editable from new flow
         if os.path.exists(self.legacy_file):
             try:
@@ -228,7 +308,7 @@ class SkillsManager:
                         if not isinstance(row, dict):
                             continue
                         name = slugify(row.get("title") or row.get("id") or "skill")
-                        if name in seen_names:
+                        if (row.get("owner") or "", name) in seen_keys:
                             continue
                         out.append({
                             "id": row.get("id") or name,
@@ -257,6 +337,48 @@ class SkillsManager:
             except Exception:
                 pass
         return out
+
+    def save(self, entries: List[Dict]) -> None:
+        """Compatibility bulk save used by backup import."""
+        if not isinstance(entries, list):
+            return
+        for row in entries:
+            if not isinstance(row, dict):
+                continue
+            name = row.get("name") or row.get("id") or row.get("title")
+            if not name:
+                continue
+            owner = row.get("owner")
+            existing = next(
+                (s for s in self.load(owner=owner) if s.get("name") == slugify(name) or s.get("id") == name),
+                None,
+            )
+            if existing:
+                self.update_skill(existing["name"], row, owner=owner)
+            else:
+                self.add_skill(
+                    name=name,
+                    description=row.get("description") or row.get("title") or "",
+                    category=row.get("category") or "general",
+                    tags=row.get("tags") or [],
+                    platforms=row.get("platforms") or [],
+                    requires_toolsets=row.get("requires_toolsets") or [],
+                    fallback_for_toolsets=row.get("fallback_for_toolsets") or [],
+                    when_to_use=row.get("when_to_use") or row.get("problem") or "",
+                    procedure=row.get("procedure") or row.get("steps") or [],
+                    pitfalls=row.get("pitfalls") or [],
+                    verification=row.get("verification") or [],
+                    status=row.get("status") or "draft",
+                    version=row.get("version") or "1.0.0",
+                    confidence=row.get("confidence", 0.8),
+                    source=row.get("source", "imported"),
+                    teacher_model=row.get("teacher_model"),
+                    owner=owner,
+                    title=row.get("title") or "",
+                    problem=row.get("problem") or "",
+                    solution=row.get("solution") or row.get("body_extra") or "",
+                    steps=row.get("steps") or [],
+                )
 
     def load(self, owner: Optional[str] = None) -> List[Dict]:
         entries = self.load_all()
@@ -389,14 +511,17 @@ class SkillsManager:
 
             scalar_keys = (
                 "description", "version", "category", "status", "confidence",
-                "source", "teacher_model", "when_to_use",
-                "body_extra",
+                "source", "teacher_model", "when_to_use", "body_extra",
+                "genre", "type", "uses", "last_used", "audit_verdict",
+                "audit_by_teacher", "audit_worker_model", "audit_teacher_model",
+                "audited_at", "necessity",
             )
             for k in scalar_keys:
                 if k in updates:
                     setattr(sk, k, updates[k])
             list_keys = ("tags", "procedure", "pitfalls", "verification",
-                         "platforms", "requires_toolsets", "fallback_for_toolsets")
+                         "platforms", "requires_toolsets", "fallback_for_toolsets",
+                         "related")
             for k in list_keys:
                 if k in updates:
                     setattr(sk, k, list(updates[k] or []))
@@ -417,7 +542,7 @@ class SkillsManager:
                 sk.name = new_name
 
             # Write to potentially new path
-            new_path = self._skill_file(sk.category, sk.name)
+            new_path = self._skill_file(sk.category, sk.name, owner=sk.owner)
             if new_path != path:
                 # Move the whole skill directory if rename or recategorize
                 new_dir = os.path.dirname(new_path)
@@ -462,11 +587,18 @@ class SkillsManager:
         return False
 
     def record_use(self, skill_id: str) -> None:
-        usage = self._load_usage()
-        entry = usage.setdefault(skill_id, {"uses": 0, "last_used": None})
-        entry["uses"] = int(entry.get("uses", 0)) + 1
-        entry["last_used"] = int(time.time())
-        self._save_usage(usage)
+        for sk in self.load_all():
+            if sk.get("name") != skill_id and sk.get("id") != skill_id:
+                continue
+            self.update_skill(
+                sk["name"],
+                {
+                    "uses": int(sk.get("uses", 0) or 0) + 1,
+                    "last_used": int(time.time()),
+                },
+                owner=sk.get("owner"),
+            )
+            return
 
     # ----------------------------------------------------------------------
     # Reading a single skill (used by the skill_view tool)

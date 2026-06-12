@@ -1,9 +1,9 @@
 """
-memory_vector.py
+Derived Obsidian knowledge recall index.
 
-ChromaDB-backed vector store for memory entries.
-Shares the EmbeddingClient with RAG to save memory.
-Stores pre-computed embeddings (ChromaDB does not manage embedding).
+This keeps the legacy MemoryVectorStore class name so existing callers keep
+working, but Chroma is no longer canonical. Durable knowledge lives in
+Obsidian Markdown; this collection is a rebuildable cache.
 """
 
 import logging
@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryVectorStore:
-    """Vector index over memory entries for semantic retrieval."""
+    """Vector index over Obsidian-backed knowledge entries for semantic retrieval."""
 
-    COLLECTION_NAME = "odysseus_memories"
+    COLLECTION_NAME = "odysseus_knowledge"
 
     def __init__(self, data_dir: str, embedding_model=None):
         self._model = embedding_model
@@ -33,7 +33,7 @@ class MemoryVectorStore:
                 self._model = get_embedding_client()
                 if self._model is None:
                     raise RuntimeError("No embedding backend available")
-                logger.info(f"MemoryVectorStore using embeddings: {self._model.url}")
+                logger.info(f"ObsidianRecallIndex using embeddings: {self._model.url}")
 
             client = get_chroma_client()
             self._collection = client.get_or_create_collection(
@@ -43,10 +43,10 @@ class MemoryVectorStore:
 
             self._healthy = True
             count = self._collection.count()
-            logger.info(f"MemoryVectorStore ready (entries={count})")
+            logger.info(f"ObsidianRecallIndex ready (entries={count})")
 
         except Exception as e:
-            logger.error(f"MemoryVectorStore init failed: {e}")
+            logger.error(f"ObsidianRecallIndex init failed: {e}")
 
     @property
     def healthy(self) -> bool:
@@ -75,7 +75,7 @@ class MemoryVectorStore:
             ids=[memory_id],
             embeddings=embeddings,
             documents=[text],
-            metadatas=[{"source": "memory"}],
+            metadatas=[{"source": "obsidian_knowledge"}],
         )
 
     def remove(self, memory_id: str):
@@ -85,7 +85,7 @@ class MemoryVectorStore:
         try:
             self._collection.delete(ids=[memory_id])
         except Exception as e:
-            logger.warning(f"memory remove {memory_id}: {e}")
+            logger.warning(f"knowledge index remove {memory_id}: {e}")
 
     def search(self, query: str, k: int = 8) -> List[Dict]:
         """Search for the most relevant memory IDs by semantic similarity.
@@ -169,7 +169,39 @@ class MemoryVectorStore:
                     ids=batch_ids,
                     embeddings=embeddings,
                     documents=batch_texts,
-                    metadatas=[{"source": "memory"}] * len(batch_ids),
+                    metadatas=[{"source": "obsidian_knowledge"}] * len(batch_ids),
                 )
 
-        logger.info(f"MemoryVectorStore rebuilt with {len(ids)} entries")
+        logger.info(f"ObsidianRecallIndex rebuilt with {len(ids)} entries")
+
+    def clear(self):
+        """Clear the derived Chroma collection without touching Obsidian notes."""
+        if not self._healthy:
+            return
+        from src.chroma_client import get_chroma_client
+        client = get_chroma_client()
+        try:
+            client.delete_collection(self.COLLECTION_NAME)
+        except Exception:
+            pass
+        self._collection = client.get_or_create_collection(
+            name=self.COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+
+_singleton: Optional[MemoryVectorStore] = None
+
+
+def get_memory_vector_store() -> Optional[MemoryVectorStore]:
+    """Compatibility singleton for admin cache maintenance."""
+    global _singleton
+    if _singleton is not None:
+        return _singleton
+    try:
+        from src.constants import DATA_DIR
+        _singleton = MemoryVectorStore(DATA_DIR)
+        return _singleton
+    except Exception as exc:
+        logger.warning("ObsidianRecallIndex singleton unavailable: %s", exc)
+        return None

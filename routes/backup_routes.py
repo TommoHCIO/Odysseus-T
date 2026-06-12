@@ -1,4 +1,4 @@
-"""Backup routes — export/import user data (memories, presets, settings, skills, preferences)."""
+"""Backup routes — export/import user data (Obsidian knowledge, presets, settings, skills, preferences)."""
 
 import json
 import logging
@@ -21,8 +21,9 @@ def setup_backup_routes(memory_manager, preset_manager, skills_manager) -> APIRo
         require_admin(request)
         user = get_current_user(request)
 
-        # Memories (filtered by owner when auth is enabled)
-        memories = memory_manager.load(owner=user)
+        # Obsidian knowledge (filtered by owner when auth is enabled). The
+        # exported `memories` key stays for compatibility with older backups.
+        knowledge = memory_manager.load(owner=user)
 
         # Presets (shared across users — export all)
         presets = preset_manager.get_all()
@@ -44,7 +45,8 @@ def setup_backup_routes(memory_manager, preset_manager, skills_manager) -> APIRo
             "version": 1,
             "exported_at": datetime.now().isoformat(),
             "exported_by": user,
-            "memories": memories,
+            "knowledge": knowledge,
+            "memories": knowledge,
             "presets": presets,
             "skills": skills,
             "settings": settings,
@@ -74,12 +76,15 @@ def setup_backup_routes(memory_manager, preset_manager, skills_manager) -> APIRo
 
         imported = []
 
-        # ── Memories ──
-        if "memories" in body and isinstance(body["memories"], list):
+        # ── Obsidian knowledge ──
+        knowledge_rows = body.get("knowledge")
+        if not isinstance(knowledge_rows, list):
+            knowledge_rows = body.get("memories")
+        if isinstance(knowledge_rows, list):
             existing = memory_manager.load_all()
             existing_texts = {e.get("text", "").strip().lower() for e in existing}
             added = 0
-            for mem in body["memories"]:
+            for mem in knowledge_rows:
                 if not isinstance(mem, dict) or not mem.get("text"):
                     continue
                 if mem["text"].strip().lower() in existing_texts:
@@ -91,7 +96,7 @@ def setup_backup_routes(memory_manager, preset_manager, skills_manager) -> APIRo
                 existing_texts.add(mem["text"].strip().lower())
                 added += 1
             memory_manager.save(existing)
-            imported.append(f"{added} memories")
+            imported.append(f"{added} knowledge entries")
 
         # ── Skills ──
         if "skills" in body and isinstance(body["skills"], list):

@@ -1514,7 +1514,7 @@ function _withCouncilProtocol(task) {
     '- Treat sandboxed HTML as the Idea Loop preview harness only. The real deliverable may be a multi-file repo, API, mobile app, desktop app, SaaS platform, CLI, game, automation, AI agent, browser extension, or service mesh.',
     '- For non-web deliverables, include the concrete package shape: file tree, source files or patch plan, service boundaries, data contracts, run commands, test commands, deployment target, and validation evidence.',
     '- Preserve the requested stage contract: ideas go to Idea Loop requests, sketches include a runnable prototype, finals include a runnable review build plus docs/tests/commands.',
-    '- Store meaningful knowledge in the Obsidian/workspace artifact first, then sync Brain memory second.',
+    '- Store meaningful knowledge in Obsidian/workspace as the canonical source of truth; legacy memory compatibility is derived from that.',
     '',
     text,
   ].join('\n');
@@ -2285,7 +2285,7 @@ async function _pushCouncilIdea(task, holder, modelIdx, publishOptions = {}) {
           qaResult ? `Artifact QA: ${qaResult.score}% ${qaResult.passed ? 'passed' : 'blocked'} after ${qaAttempts} revision attempt${qaAttempts === 1 ? '' : 's'}.` : '',
           qaResult?.failures?.length ? `QA failures: ${qaResult.failures.join('; ')}` : '',
           transcript ? 'Collaboration evidence: position round, critique round, and final synthesis transcript captured in this artifact.' : '',
-          'Knowledge sync: Obsidian/workspace artifact created as source of truth before Brain memory sync.',
+          'Knowledge sync: Obsidian/workspace artifact created as the source of truth.',
         ].filter(Boolean).join('\n'),
         links: {
           session_id: _parentSessionId,

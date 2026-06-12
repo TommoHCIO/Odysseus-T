@@ -21,6 +21,14 @@ from src.agent_loop import (
     _append_tool_results,
 )
 
+# This file only needs the mocked dependency while importing agent_loop.
+# Restore the slot afterward so later tests that exercise real tool execution
+# do not inherit a MagicMock ToolBlock.
+if isinstance(sys.modules.get("src.agent_tools"), MagicMock):
+    sys.modules.pop("src.agent_tools", None)
+    if "src" in sys.modules and hasattr(sys.modules["src"], "agent_tools"):
+        delattr(sys.modules["src"], "agent_tools")
+
 
 # ---------------------------------------------------------------------------
 # _detect_admin_intent

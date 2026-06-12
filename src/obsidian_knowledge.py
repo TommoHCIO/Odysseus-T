@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 import uuid
 
 from core.constants import DATA_DIR
@@ -65,7 +65,7 @@ KNOWN_EVENT_TYPES = {
     "council.consensus_update", "council.consensus_reached", "council.consensus_failed",
     "council.idea_created", "council.sketch_created", "council.review_created", "council.qa_passed",
     "council.qa_blocked", "council.tool_used", "council.revision_requested",
-    "council.final_recommendation",
+    "council.context_injected", "council.final_recommendation",
     "idea_loop.request_created", "idea_loop.idea_approved", "idea_loop.sketch_approved",
     "idea_loop.review_approved", "idea_loop.card_updated", "idea_loop.card_deleted",
     "idea_loop.artifact_attached", "idea_loop.preview_started", "idea_loop.preview_failed",
@@ -100,6 +100,9 @@ KNOWN_EVENT_TYPES = {
     "media.ocr_result",
     "models.model_downloaded", "models.model_served", "models.model_failed",
     "models.endpoint_added", "models.endpoint_failed", "cookbook.recipe_run",
+    "skills.created", "skills.updated", "skills.deleted", "skills.published",
+    "skills.used", "skills.audited", "skills.extracted", "skills.imported",
+    "skills.skill",
     "mcp.server_added", "mcp.server_started", "mcp.server_failed", "mcp.tool_discovered",
     "mcp.tool_failed", "webhook.received", "webhook.triggered",
     "security.login", "security.logout", "security.permission_denied", "security.secret_redacted",
@@ -117,7 +120,7 @@ EVENT_NAME_TO_TYPE = {
     "message_sent": "chat.user_message",
     "session_created": "chat.session_created",
     "memory_added": "memory.promoted",
-    "skill_added": "mcp.tool_discovered",
+    "skill_added": "skills.created",
 }
 
 CURATION_TYPES = {
@@ -145,6 +148,18 @@ _SECRET_PATTERNS = [
     re.compile(r"\b(?:sk|pk|ghp|github_pat|xox[baprs])_[A-Za-z0-9_=-]{12,}\b", re.IGNORECASE),
     re.compile(r"\b[A-Za-z0-9+/]{32,}={0,2}\b"),
 ]
+
+_SEARCH_STOPWORDS = {
+    "about", "above", "actual", "after", "again", "agent", "agents", "also", "answer",
+    "available", "before", "being", "build", "cannot", "check", "clear", "code",
+    "concrete", "context", "council", "data", "does", "each", "every", "exact",
+    "final", "from", "have", "include", "injected", "knowledge", "local", "model",
+    "needed", "only", "phase", "phrase", "prototype", "quote", "recall", "response",
+    "review", "should", "stage", "system", "task", "test", "that", "their", "them",
+    "these", "this", "tool", "tools", "turn", "user", "what", "when", "with", "words",
+    "deliberative", "ideas", "obsidian", "odysseus_council_protocol",
+    "odysseus_workspace_stage", "operating", "protocol", "question", "remember",
+}
 
 
 def safe_user_dir(user_key: str) -> str:
@@ -496,26 +511,65 @@ def _read_markdown_notes(root: Path) -> List[Path]:
     return sorted(root.rglob("*.md"), key=lambda path: path.relative_to(root).as_posix().lower())
 
 
+def _search_terms(query: str) -> Tuple[List[str], List[str]]:
+    raw = re.findall(r"[A-Za-z0-9_/-]{2,}", query or "")
+    seen = set()
+    terms: List[str] = []
+    for raw_term in raw:
+        term = raw_term.lower().strip("/-_")
+        if not term or term in seen:
+            continue
+        if term in _SEARCH_STOPWORDS:
+            continue
+        is_specific = bool(re.search(r"[\d_/-]", term)) or len(term) >= 12
+        if not is_specific and (len(term) < 4 or term in _SEARCH_STOPWORDS):
+            continue
+        seen.add(term)
+        terms.append(term)
+
+    phrase_seen = set()
+    phrases: List[str] = []
+    for match in re.finditer(r"[\"'`“”](.{4,140}?)[\"'`“”]", query or ""):
+        phrase = re.sub(r"\s+", " ", match.group(1).strip().lower())
+        if not phrase or phrase in phrase_seen:
+            continue
+        if any(term in phrase for term in terms if len(term) >= 8 or re.search(r"[\d_/-]", term)):
+            phrase_seen.add(phrase)
+            phrases.append(phrase)
+    return terms, phrases
+
+
 def search_knowledge(user_key: str, query: str, *, limit: int = 10, vault_root: Optional[str] = None) -> Dict[str, Any]:
-    terms = [term.lower() for term in re.findall(r"[A-Za-z0-9_/-]{2,}", query or "")]
+    terms, phrases = _search_terms(query or "")
     root = vault_root_for_user(user_key, vault_root=vault_root)
     results = []
     for path in _read_markdown_notes(root):
         rel = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8", errors="replace")
         haystack = f"{rel}\n{text}".lower()
+        rel_lower = rel.lower()
         score = 0
         reasons = []
+        for phrase in phrases:
+            if phrase in haystack:
+                score += 120
+                reasons.append(phrase)
         for term in terms:
             count = haystack.count(term)
             if count:
-                score += count
+                score += min(count, 5)
+                if re.search(r"[\d_/-]", term) or len(term) >= 12:
+                    score += 60
+                if term in rel_lower:
+                    score += 25
                 reasons.append(term)
         if not terms:
             score = 1
         if score:
             if "/Knowledge/" in rel:
-                score += 50
+                score += 300
+            elif "/Skills/" in rel:
+                score += 35
             elif "/Curation/Pending/" in rel:
                 score += 25
             elif "/Journal/" in rel:

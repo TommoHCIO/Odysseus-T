@@ -21153,11 +21153,11 @@ body:not(.welcome-ready) #welcome-screen {
 /* ── Tasks ── */
 .tasks-modal-content { max-width: 600px; width: min(600px, 92vw); background: var(--bg); font-size: 12px; }
 
-/* Tasks tabs reuse the .memory-tab look. The Brain window's tab bar is
+/* Tasks tabs reuse the .memory-tab look. The legacy knowledge tab bar is
    full-bleed (its underline spans the whole modal width). The Tasks bar is a
    direct child of .modal-content (padding:10px), so cancel that padding with
    negative side margins to span edge-to-edge, then re-inset the tabs by 10px
-   so they line up with the rest of the modal content — matching the Brain bar. */
+   so they line up with the rest of the modal content. */
 .tasks-modal-content .tasks-tabs {
   margin: -2px -10px 8px;
   padding: 0 10px;
@@ -36378,6 +36378,7 @@ body.theme-frosted .modal {
   flex: 1;
 }
 .workspace-modal .obsidian-note-row,
+.workspace-modal .obsidian-skill-row,
 .workspace-modal .obsidian-search-result,
 .workspace-modal .obsidian-activity-row {
   width: 100%;
@@ -36402,6 +36403,8 @@ body.theme-frosted .modal {
 }
 .workspace-modal .obsidian-note-row:hover,
 .workspace-modal .obsidian-note-row.is-selected,
+.workspace-modal .obsidian-skill-row:hover,
+.workspace-modal .obsidian-skill-row.is-selected,
 .workspace-modal .obsidian-search-result:hover,
 .workspace-modal .obsidian-activity-row:hover {
   border-color: color-mix(in srgb, var(--accent, var(--red)) 64%, var(--border));
@@ -36409,6 +36412,23 @@ body.theme-frosted .modal {
 }
 .workspace-modal .obsidian-note-row.is-knowledge {
   border-left-color: #71e3bd;
+}
+.workspace-modal .obsidian-note-row.is-skill,
+.workspace-modal .obsidian-skill-row {
+  border-left-color: #f5b4bd;
+}
+.workspace-modal .obsidian-skill-row {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  align-content: start;
+  gap: 7px;
+  min-height: 0;
+  height: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+  padding: 9px;
 }
 .workspace-modal .obsidian-note-row.is-pending,
 .workspace-modal .obsidian-activity-row.is-pending {
@@ -36420,6 +36440,7 @@ body.theme-frosted .modal {
 }
 .workspace-modal .obsidian-note-row-head,
 .workspace-modal .obsidian-search-result span,
+.workspace-modal .obsidian-skill-row .obsidian-note-row-head,
 .workspace-modal .obsidian-activity-row span {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -36429,6 +36450,7 @@ body.theme-frosted .modal {
 }
 .workspace-modal .obsidian-note-row strong,
 .workspace-modal .obsidian-search-result strong,
+.workspace-modal .obsidian-skill-row strong,
 .workspace-modal .obsidian-activity-row strong {
   min-width: 0;
   overflow: hidden;
@@ -36437,6 +36459,7 @@ body.theme-frosted .modal {
   font-size: 12px;
 }
 .workspace-modal .obsidian-note-row time,
+.workspace-modal .obsidian-skill-row time,
 .workspace-modal .obsidian-activity-row time,
 .workspace-modal .obsidian-search-result b,
 .workspace-modal .obsidian-activity-row b {
@@ -36447,6 +36470,7 @@ body.theme-frosted .modal {
 }
 .workspace-modal .obsidian-note-row small,
 .workspace-modal .obsidian-search-result small,
+.workspace-modal .obsidian-skill-row small,
 .workspace-modal .obsidian-activity-row small {
   display: block;
   min-width: 0;
@@ -36466,6 +36490,140 @@ body.theme-frosted .modal {
   max-width: 100%;
   color: color-mix(in srgb, var(--fg) 66%, transparent);
   font-size: 9px;
+}
+.workspace-modal .obsidian-skill-row-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+.workspace-modal .obsidian-skill-row-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.25;
+}
+.workspace-modal .obsidian-skill-row-title time {
+  color: color-mix(in srgb, var(--fg) 58%, transparent);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+.workspace-modal .obsidian-skill-description {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: color-mix(in srgb, var(--fg) 66%, transparent);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.workspace-modal .obsidian-skill-meta,
+.workspace-modal .obsidian-skill-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.workspace-modal .obsidian-skill-meta b,
+.workspace-modal .obsidian-skill-meta span,
+.workspace-modal .obsidian-skill-tags span {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  padding: 2px 6px;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--fg) 64%, transparent);
+  font-size: 9px;
+  line-height: 1.25;
+}
+.workspace-modal .obsidian-skill-meta b {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, #f2c66d 70%, var(--fg));
+  font-weight: 650;
+}
+.workspace-modal .obsidian-skill-meta .is-category {
+  flex: 1 1 100px;
+  border-color: color-mix(in srgb, #7dd3fc 36%, var(--border));
+  color: color-mix(in srgb, #9fe6ff 74%, var(--fg));
+}
+.workspace-modal .obsidian-skill-tags span {
+  flex: 0 1 auto;
+  max-width: min(100%, 132px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-modal .obsidian-skill-list {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+}
+.workspace-modal .obsidian-inline-search {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.workspace-modal .obsidian-inline-search span {
+  color: color-mix(in srgb, var(--fg) 55%, transparent);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.workspace-modal .obsidian-inline-search input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg) 90%, #31424a 10%);
+  color: var(--fg);
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 11px;
+}
+.workspace-modal .obsidian-skill-detail {
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 10px;
+}
+.workspace-modal .obsidian-skill-detail p,
+.workspace-modal .obsidian-skill-detail li,
+.workspace-modal .obsidian-skill-detail em {
+  color: color-mix(in srgb, var(--fg) 72%, transparent);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.workspace-modal .obsidian-skill-detail h3 {
+  margin: 0;
+  color: color-mix(in srgb, var(--accent, var(--red)) 76%, #fff 24%);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.workspace-modal .obsidian-skill-detail section {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.workspace-modal .obsidian-skill-detail ol {
+  margin: 0;
+  padding-left: 18px;
 }
 .workspace-modal .obsidian-note-row-meta b {
   color: color-mix(in srgb, #f2c66d 70%, var(--fg));

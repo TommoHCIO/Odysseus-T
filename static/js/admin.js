@@ -66,7 +66,7 @@ const PRIV_LABELS = {
   can_use_documents: 'Document editor',
   can_use_research: 'Deep research',
   can_generate_images: 'Image generation',
-  can_manage_memory: 'Memory & skills',
+  can_manage_memory: 'Obsidian knowledge & skills',
 };
 
 async function loadUsers() {
@@ -1197,7 +1197,8 @@ const TOOL_META = {
   suggest_document:  { name: 'Suggest Changes',  desc: 'Propose document edits',          cat: 'Documents',  ctx: '~200' },
   manage_documents:  { name: 'Manage Documents', desc: 'List, delete, organize docs',     cat: 'Documents',  ctx: '~150' },
   generate_image:    { name: 'Generate Image',   desc: 'Create images via AI',            cat: 'Media',      ctx: '~150' },
-  manage_memory:     { name: 'Memory',           desc: 'Save and recall memories',        cat: 'Knowledge',  ctx: '~200' },
+  manage_knowledge:  { name: 'Knowledge',        desc: 'Save and recall Obsidian knowledge', cat: 'Knowledge',  ctx: '~200' },
+  manage_memory:     { name: 'Memory alias',     desc: 'Deprecated alias for knowledge',  cat: 'Knowledge',  ctx: '~200' },
   manage_skills:     { name: 'Skills',           desc: 'Learn and use procedures',        cat: 'Knowledge',  ctx: '~200' },
   manage_rag:        { name: 'RAG / Docs',       desc: 'Query indexed documents',         cat: 'Knowledge',  ctx: '~150' },
   chat_with_model:   { name: 'Chat with Model',  desc: 'Talk to another AI model',        cat: 'Multi-Agent', ctx: '~200' },

@@ -62,7 +62,7 @@ const NEXT_COUNCIL_STEP = {
       'Do not flatten the actual deliverable into HTML. Outside the preview, include the intended project type, repository/file tree, primary source files or patch plan, services/modules, APIs or commands, storage model, local run commands, and test commands.',
       'Keep the prototype lightweight but visually credible; no external network assets.',
       'After the code block, list the primary screens, data flow, key interactions, backend/services shape, storage model, research findings, QA checks, documentation needs, and open questions.',
-      'Make clear what knowledge should be stored in Obsidian/workspace before Brain memory is updated.',
+      'Make clear what knowledge should be stored in Obsidian/workspace as the canonical record.',
       'Do not produce final delivery yet; make the sketch clear enough for approval.',
     ],
   },
@@ -83,7 +83,7 @@ const NEXT_COUNCIL_STEP = {
       'If the request is a fuel price application, the app must run locally in a browser without external dependencies and include working controls for fuel type, location, currency, efficiency, trip distance, sorting/filtering, and total trip cost.',
       'Use realistic sample data for the project domain and include visible documentation/help inside the page.',
       'After the code block, include functional behavior, implementation notes, testing evidence, Docker/log validation, deployment notes, user/developer/operational documentation, risks, acceptance criteria, and local execution commands.',
-      'State the Obsidian/workspace knowledge entries that should be retained before Brain memory sync.',
+      'State the Obsidian/workspace knowledge entries that should be retained as durable context.',
     ],
   },
   council: {
@@ -94,7 +94,7 @@ const NEXT_COUNCIL_STEP = {
     instructions: [
       'Start with a "Council deliberation" section that compares the current review item against the requested acceptance criteria.',
       'Re-run the UI/UX validation gate and identify any visual, interaction, accessibility, or responsiveness gaps before marking the review item ready.',
-      'Tighten the final product, documentation, missing tests, Docker/browser evidence, Obsidian/workspace knowledge, Brain memory notes, and acceptance criteria.',
+      'Tighten the final product, documentation, missing tests, Docker/browser evidence, Obsidian/workspace knowledge notes, and acceptance criteria.',
       'Call out anything that blocks implementation or user approval.',
     ],
   },
@@ -124,6 +124,11 @@ let _obsidianSearchError = '';
 let _obsidianSearchTimer = null;
 let _obsidianDirty = false;
 let _obsidianEditorDraft = null;
+let _obsidianSkills = [];
+let _obsidianSkillsLoading = false;
+let _obsidianSkillsError = '';
+let _obsidianSkillQuery = '';
+let _selectedSkillName = '';
 let _selectedGraphNodeId = '';
 let _obsidianGraphQuery = '';
 let _obsidianGraphScope = 'global';
@@ -213,6 +218,21 @@ async function _loadObsidian() {
     _obsidianLoading = false;
     _renderOpenSurfaces();
   }
+}
+
+async function _loadObsidianSkills({ render = true } = {}) {
+  if (_obsidianSkillsLoading) return;
+  _obsidianSkillsLoading = true;
+  _obsidianSkillsError = '';
+  try {
+    const data = await _request('/api/skills');
+    _obsidianSkills = Array.isArray(data?.skills) ? data.skills : [];
+  } catch (err) {
+    _obsidianSkillsError = err.message || 'Could not load skills';
+  } finally {
+    _obsidianSkillsLoading = false;
+  }
+  if (render && _modal(OBSIDIAN_MODAL_ID)) _renderObsidian();
 }
 
 function _modal(id) {
@@ -392,6 +412,7 @@ function _noteKind(note) {
   if (path.includes('/Curation/Pending/')) return 'pending';
   if (path.includes('/Curation/Rejected/')) return 'rejected';
   if (path.includes('/Knowledge/')) return 'knowledge';
+  if (path.includes('/Skills/')) return 'skill';
   if (path.startsWith('Inbox/')) return 'inbox';
   return 'note';
 }
@@ -425,10 +446,11 @@ function _obsidianHealth() {
   const notes = _obsidianState?.notes || [];
   const pending = _pendingCurationNotes();
   const knowledge = notes.filter((note) => _noteKind(note) === 'knowledge');
+  const skills = notes.filter((note) => _noteKind(note) === 'skill');
   const journal = notes.filter((note) => _noteKind(note) === 'journal');
   const links = _obsidianState?.graph?.edges?.length || 0;
   const last = notes.reduce((best, note) => String(note.updated_at || '') > String(best || '') ? note.updated_at : best, '');
-  return { notes, pending, knowledge, journal, links, last };
+  return { notes, pending, knowledge, skills, journal, links, last };
 }
 
 function _noteMatchesQuery(note, query) {
@@ -460,6 +482,50 @@ function _recentActivityNotes() {
     .slice()
     .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
     .slice(0, 18);
+}
+
+function _skillQueryMatches(skill) {
+  const q = String(_obsidianSkillQuery || '').trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    skill?.name,
+    skill?.description,
+    skill?.category,
+    skill?.status,
+    skill?.source,
+    skill?.audit_verdict,
+    ...(skill?.tags || []),
+    ...(skill?.procedure || []),
+  ].join(' ').toLowerCase();
+  return haystack.includes(q);
+}
+
+function _skillNotePath(skill) {
+  const raw = String(skill?.path || '').replace(/\\/g, '/');
+  const marker = '/Odysseus/Skills/';
+  const idx = raw.indexOf(marker);
+  if (idx >= 0) return raw.slice(idx + 1);
+  const byName = slugifyLike(skill?.name || '');
+  if (!byName) return '';
+  const notes = _obsidianState?.notes || [];
+  const match = notes.find((note) => {
+    const path = String(note.path || '');
+    return path.includes('/Skills/') && path.endsWith(`/${byName}/SKILL.md`);
+  });
+  return match?.path || '';
+}
+
+function slugifyLike(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || '';
+}
+
+function _filteredObsidianSkills() {
+  return (_obsidianSkills || []).filter(_skillQueryMatches).sort((a, b) => {
+    const statusA = a.status === 'published' ? 0 : 1;
+    const statusB = b.status === 'published' ? 0 : 1;
+    if (statusA !== statusB) return statusA - statusB;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
 }
 
 function _frontmatterRows(note) {
@@ -1142,6 +1208,7 @@ function _renderObsidianMetrics() {
       ${_statusChip('notes', health.notes.length, 'notes')}
       ${_statusChip('pending', health.pending.length, health.pending.length ? 'pending' : '')}
       ${_statusChip('knowledge', health.knowledge.length, 'knowledge')}
+      ${_statusChip('skills', health.skills.length || _obsidianSkills.length, 'skills')}
       ${_statusChip('journals', health.journal.length, 'journal')}
       ${_statusChip('links', health.links, 'links')}
       <span class="obsidian-chip is-path" title="${_escape(_obsidianState?.root || '')}"><strong>${_escape(_formatShortDate(health.last) || 'never')}</strong>last update</span>
@@ -1155,6 +1222,7 @@ function _renderObsidianTabs() {
   const tabs = [
     ['vault', 'Vault', health.notes.length],
     ['curation', 'Curation', health.pending.length],
+    ['skills', 'Skills', _obsidianSkills.length || health.skills.length],
     ['graph', 'Graph', graphCount],
     ['activity', 'Activity', activityCount],
   ];
@@ -1320,6 +1388,82 @@ function _renderObsidianActivity() {
     </button>`).join('');
 }
 
+function _renderObsidianSkillList() {
+  if (_obsidianSkillsLoading) return '<div class="obsidian-empty">Loading Obsidian skills...</div>';
+  if (_obsidianSkillsError) return `<div class="obsidian-error">Skills failed to load: ${_escape(_obsidianSkillsError)}</div>`;
+  const skills = _filteredObsidianSkills();
+  if (!skills.length) return '<div class="obsidian-empty">No matching skills yet.</div>';
+  return skills.map((skill) => {
+    const name = skill.name || skill.id || 'unnamed-skill';
+    const selected = _selectedSkillName === name;
+    const tags = (skill.tags || []).slice(0, 5).map((tag) => `<span>${_escape(tag)}</span>`).join('');
+    const notePath = _skillNotePath(skill);
+    const confidence = skill.confidence !== undefined && skill.confidence !== null ? Math.round(Number(skill.confidence) * 100) : '';
+    const metaChips = [
+      skill.category ? `<span class="is-category" title="${_escape(skill.category)}">${_escape(skill.category)}</span>` : '',
+      skill.audit_verdict ? `<span>${_escape(skill.audit_verdict)}</span>` : '',
+      confidence ? `<span>${_escape(`${confidence}%`)}</span>` : '',
+    ].filter(Boolean).join('');
+    return `
+      <button type="button" class="obsidian-skill-row ${selected ? 'is-selected' : ''}" data-skill-name="${_escape(name)}" data-note-path="${_escape(notePath)}">
+        <span class="obsidian-skill-row-title">
+          <strong>${_highlightText(name, _obsidianSkillQuery)}</strong>
+          <time>${_escape(skill.last_used ? _formatShortDate(Number(skill.last_used) * 1000) : '')}</time>
+        </span>
+        <span class="obsidian-skill-description">${_highlightText(skill.description || 'Reusable SKILL.md procedure', _obsidianSkillQuery)}</span>
+        <span class="obsidian-skill-meta">
+          <b>${_escape(skill.status || 'draft')}</b>
+          ${metaChips || '<span>general</span>'}
+        </span>
+        ${tags ? `<span class="obsidian-skill-tags">${tags}</span>` : ''}
+      </button>`;
+  }).join('');
+}
+
+function _activeSkill() {
+  return (_obsidianSkills || []).find((skill) => (skill.name || skill.id) === _selectedSkillName) || _filteredObsidianSkills()[0] || null;
+}
+
+function _renderObsidianSkillDetail() {
+  const skill = _activeSkill();
+  if (_obsidianSkillsLoading) return '<div class="obsidian-empty">Loading skill library...</div>';
+  if (!skill) return '<div class="obsidian-empty">Select a skill to review its SKILL.md metadata.</div>';
+  const name = skill.name || skill.id || 'unnamed-skill';
+  const notePath = _skillNotePath(skill);
+  const rows = [
+    ['Status', skill.status || 'draft'],
+    ['Category', skill.category || 'general'],
+    ['Confidence', skill.confidence !== undefined && skill.confidence !== null ? `${Math.round(Number(skill.confidence) * 100)}%` : 'unset'],
+    ['Uses', skill.uses || 0],
+    ['Last used', skill.last_used ? _formatLongDate(Number(skill.last_used) * 1000) : 'never'],
+    ['Audit', skill.audit_verdict || 'not audited'],
+    ['Source', skill.source || 'skill'],
+    ['Path', notePath || 'Not indexed in Obsidian yet'],
+  ].map(([key, value]) => `<div><span>${_escape(key)}</span><strong>${_escape(value)}</strong></div>`).join('');
+  const procedure = (skill.procedure || []).slice(0, 8).map((step) => `<li>${_escape(step)}</li>`).join('');
+  return `
+    <section class="obsidian-skill-detail">
+      <div class="obsidian-pane-title">
+        <strong>${_escape(name)}</strong>
+        <span>${_escape(skill.genre || 'runbook')}</span>
+      </div>
+      <p>${_escape(skill.description || skill.when_to_use || 'Reusable Odysseus procedure.')}</p>
+      <div class="obsidian-yaml-summary">${rows}</div>
+      <section>
+        <h3>When to Use</h3>
+        <p>${_escape(skill.when_to_use || 'No trigger guidance yet.')}</p>
+      </section>
+      <section>
+        <h3>Procedure</h3>
+        ${procedure ? `<ol>${procedure}</ol>` : '<em>No procedure steps yet.</em>'}
+      </section>
+      <div class="obsidian-vault-actions">
+        ${notePath ? `<button type="button" class="doclib-card-action-btn obsidian-primary-action" data-action="obsidian-open-skill-note" data-note-path="${_escape(notePath)}">Open SKILL.md</button>` : ''}
+        <button type="button" class="doclib-card-action-btn" data-action="obsidian-refresh-skills">Refresh skills</button>
+      </div>
+    </section>`;
+}
+
 function _renderObsidianVaultTab() {
   const notes = _filteredObsidianNotes();
   return `
@@ -1370,8 +1514,25 @@ function _renderObsidianActivityTab() {
     </div>`;
 }
 
+function _renderObsidianSkillsTab() {
+  return `
+    <div class="obsidian-cockpit-grid obsidian-skills-grid">
+      <aside class="obsidian-rail">
+        <div class="obsidian-pane-title"><strong>Skills</strong><span>${_escape(_filteredObsidianSkills().length)}</span></div>
+        <label class="obsidian-inline-search">
+          <span>Filter skills</span>
+          <input type="search" data-action="obsidian-skill-search" value="${_escape(_obsidianSkillQuery)}" placeholder="Search SKILL.md procedures" autocomplete="off" />
+        </label>
+        <div class="obsidian-skill-list">${_renderObsidianSkillList()}</div>
+      </aside>
+      <main class="obsidian-main-panel">${_renderObsidianSkillDetail()}</main>
+      ${_renderObsidianContext(_noteByPath(_skillNotePath(_activeSkill())) || _activeNote())}
+    </div>`;
+}
+
 function _renderObsidianStage() {
   if (_obsidianTab === 'curation') return _renderObsidianCurationTab();
+  if (_obsidianTab === 'skills') return _renderObsidianSkillsTab();
   if (_obsidianTab === 'graph') return _renderObsidianGraphTab();
   if (_obsidianTab === 'activity') return _renderObsidianActivityTab();
   return _renderObsidianVaultTab();
@@ -1798,6 +1959,9 @@ function _wireObsidian() {
   modal.querySelectorAll('[data-action="obsidian-tab"]').forEach((btn) => {
     btn.addEventListener('click', () => {
       _obsidianTab = btn.dataset.tab || 'vault';
+      if (_obsidianTab === 'skills' && !_obsidianSkills.length && !_obsidianSkillsLoading) {
+        _loadObsidianSkills({ render: true });
+      }
       _renderObsidian();
     });
   });
@@ -1838,6 +2002,38 @@ function _wireObsidian() {
     _obsidianSearching = false;
     window.clearTimeout(_obsidianSearchTimer);
     _renderObsidian();
+  });
+
+  modal.querySelector('[data-action="obsidian-skill-search"]')?.addEventListener('input', (event) => {
+    _obsidianSkillQuery = event.target.value || '';
+    _renderObsidian();
+  });
+
+  modal.querySelectorAll('.obsidian-skill-row').forEach((row) => {
+    row.addEventListener('click', async () => {
+      _selectedSkillName = row.dataset.skillName || '';
+      const path = row.dataset.notePath || '';
+      if (path && _noteByPath(path)) {
+        _selectedNotePath = path;
+        _noteDraft = null;
+        _clearObsidianDirty();
+        await _loadSelectedObsidianNote(path, { render: false });
+      }
+      _renderObsidian();
+    });
+  });
+
+  modal.querySelector('[data-action="obsidian-open-skill-note"]')?.addEventListener('click', async (event) => {
+    const path = event.currentTarget.dataset.notePath || '';
+    if (!path) return;
+    await openNotePath(path, { clearSearch: true, render: false });
+    _obsidianTab = 'vault';
+    _renderObsidian();
+  });
+
+  modal.querySelector('[data-action="obsidian-refresh-skills"]')?.addEventListener('click', async () => {
+    await _loadObsidianSkills({ render: false });
+    await _loadObsidian();
   });
 
   modal.querySelectorAll('.obsidian-note-row').forEach((row) => {
@@ -2262,7 +2458,8 @@ async function _deleteItem(kind, id) {
   }
 }
 
-export function openObsidian() {
+export function openObsidian(options = {}) {
+  if (options?.tab) _obsidianTab = String(options.tab);
   if (window.innerWidth <= 768) closeIdeaLoop();
   if (Modals.toggle(OBSIDIAN_MODAL_ID)) return;
   const modal = _ensureSurface({
@@ -2279,6 +2476,7 @@ export function openObsidian() {
   _renderObsidian();
   if (!_state) _load();
   if (!_obsidianState) _loadObsidian();
+  if (!_obsidianSkills.length) _loadObsidianSkills({ render: true });
 }
 
 export function openIdeaLoop() {

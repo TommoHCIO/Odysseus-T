@@ -23,7 +23,9 @@ def _write_memories(tmp_path, memories):
 
 
 def _read_memories(data_dir):
-    return json.loads((data_dir / "memory.json").read_text(encoding="utf-8"))
+    from src.memory import MemoryManager
+
+    return MemoryManager(str(data_dir)).load_all()
 
 
 @pytest.mark.asyncio

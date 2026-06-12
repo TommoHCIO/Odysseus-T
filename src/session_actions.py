@@ -8,7 +8,7 @@ and the task scheduler / builtin actions system.
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,29 @@ _THROWAWAY_NAMES = {
     "ok", "lol", "bruh", "hmm", "hm", "meh",
 }
 _THROWAWAY_MAX_MESSAGES = 4
+_RECENT_SESSION_GRACE = timedelta(minutes=10)
+
+
+def _is_recent_session(row, now: datetime | None = None, grace: timedelta = _RECENT_SESSION_GRACE) -> bool:
+    """Return True for sessions too fresh to be considered disposable."""
+    now = now or datetime.utcnow()
+    candidates = [
+        getattr(row, "last_message_at", None),
+        getattr(row, "last_accessed", None),
+        getattr(row, "updated_at", None),
+        getattr(row, "created_at", None),
+    ]
+    for value in candidates:
+        if not value:
+            continue
+        try:
+            if value.tzinfo is not None:
+                value = value.replace(tzinfo=None)
+            if now - value < grace:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 async def run_auto_sort(owner: str, skip_llm: bool = False) -> str:
@@ -50,10 +73,14 @@ async def run_auto_sort(owner: str, skip_llm: bool = False) -> str:
             *([DbSession.owner == owner] if owner else []),
         ).all()
 
+        now = datetime.utcnow()
+
         for row in rows:
             if getattr(row, 'is_important', False):
                 continue
             if (row.name or "").strip().startswith("[GRP]"):
+                continue
+            if _is_recent_session(row, now):
                 continue
             if (row.name or "").strip() == "Incognito":
                 deleted_throwaway += 1

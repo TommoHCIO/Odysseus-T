@@ -1,4 +1,4 @@
-# src/chat_processor.py
+﻿# src/chat_processor.py
 import logging
 import math
 import re
@@ -12,7 +12,7 @@ from src.prompt_security import UNTRUSTED_CONTEXT_POLICY, untrusted_context_mess
 
 logger = logging.getLogger(__name__)
 
-# ── Stopwords & tokenizer ──
+# â”€â”€ Stopwords & tokenizer â”€â”€
 
 _STOPWORDS = frozenset(
     "a an the is am are was were be been being have has had do does did "
@@ -69,7 +69,7 @@ class ChatProcessor:
             if not (self.memory_vector and self.memory_vector.healthy):
                 return []
 
-        # ── Build IDF from the memory corpus ──
+        # â”€â”€ Build IDF from the memory corpus â”€â”€
         N = len(mem_entries)
         doc_freq = Counter()  # token -> how many memories contain it
         mem_token_cache = {}  # mem_id -> set of content tokens
@@ -98,7 +98,7 @@ class ChatProcessor:
                 score += idf * tf_norm
             return score
 
-        # ── Score all candidates ──
+        # â”€â”€ Score all candidates â”€â”€
         has_vector = self.memory_vector and self.memory_vector.healthy
         vector_scores = {}
 
@@ -135,7 +135,7 @@ class ChatProcessor:
 
             kw_norm = min(kw_norm * cat_boost, 1.0)
 
-            # Recency — tiebreaker only (max 5% contribution)
+            # Recency â€” tiebreaker only (max 5% contribution)
             ts = mem.get("timestamp", 0)
             days_old = max((now - ts) / 86400, 0)
             recency = 1.0 / (1.0 + days_old * 0.05)
@@ -190,51 +190,9 @@ class ChatProcessor:
             "content": UNTRUSTED_CONTEXT_POLICY,
         })
 
-        # Memory: pinned (always included) + extended (RAG-retrieved when relevant)
-        self._last_used_memories = []  # track what was injected
-        if use_memory:
-            mem_entries = self.memory_manager.load(owner=owner)
-
-            pinned = [m for m in mem_entries if m.get("pinned")]
-            extended = [m for m in mem_entries if not m.get("pinned")]
-
-            _used_ids: list = []
-            if pinned:
-                pinned_text = "\n- ".join([m["text"] for m in pinned])
-                preface.append(untrusted_context_message(
-                    "saved memory: pinned user facts",
-                    f"Core facts about the user:\n- {pinned_text}",
-                ))
-                for m in pinned:
-                    self._last_used_memories.append({"text": m["text"], "category": m.get("category", "fact"), "type": "pinned"})
-                    if m.get("id"):
-                        _used_ids.append(m["id"])
-
-            if extended:
-                relevant = self._hybrid_retrieve(message, extended, k=3)
-                if relevant:
-                    ext_text = "\n".join([f"- {m['text']}" for m in relevant])
-                    preface.append(untrusted_context_message(
-                        "saved memory: retrieved context",
-                        (
-                            "Memory context. Do not reference unless the user asks "
-                            f"about these topics.\n{ext_text}"
-                        ),
-                    ))
-                    for m in relevant:
-                        self._last_used_memories.append({"text": m["text"], "category": m.get("category", "fact"), "type": "recalled"})
-                        if m.get("id"):
-                            _used_ids.append(m["id"])
-
-            # Bump usage counters for the memories that were actually injected.
-            if _used_ids and hasattr(self.memory_manager, "increment_uses"):
-                try:
-                    self.memory_manager.increment_uses(_used_ids)
-                except Exception as _e:
-                    logger.warning("Failed to increment memory uses: %s", _e)
-
-            # (skills index injection moved out — see below; only fires in
-            # agent mode so chat mode and incognito stay clean.)
+        # Durable user knowledge is injected later by routes.chat_helpers via
+        # Obsidian canonical recall. Keep this attribute for UI compatibility.
+        self._last_used_memories = []
 
         # RAG: search if enabled and rag_manager available, inject only above threshold
         if use_rag:
@@ -276,7 +234,7 @@ class ChatProcessor:
                 preface.append({"role": "system", "content": "Web search encountered an error and could not retrieve results."})
 
         # Process non-YouTube URLs in message (YouTube handled by preprocess_message)
-        # Skip auto-fetch for long pastes (the user already pasted the content —
+        # Skip auto-fetch for long pastes (the user already pasted the content â€”
         # fetching every embedded link buries the actual question under
         # hundreds of KB of duplicate page HTML and confuses the model) or for
         # link-heavy pastes (>3 URLs typically means it's a boilerplate-laden
@@ -294,7 +252,7 @@ class ChatProcessor:
                         f"Content from {url}:\n\n{content}",
                     ))
 
-        # Skills index — progressive disclosure. Only injected when the
+        # Skills index â€” progressive disclosure. Only injected when the
         # model has the `manage_skills` tool available (agent_mode), and
         # never in incognito mode (the user has explicitly opted out of
         # context retention this turn). In plain chat mode the model can't
@@ -309,7 +267,7 @@ class ChatProcessor:
                 by_cat: Dict[str, list] = {}
                 for s in idx:
                     by_cat.setdefault(s.get("category") or "general", []).append(s)
-                lines = ["[Available skills — call manage_skills(action='view', name='...') to load one when relevant]"]
+                lines = ["[Available skills â€” call manage_skills(action='view', name='...') to load one when relevant]"]
                 for cat in sorted(by_cat):
                     lines.append(f"  {cat}:")
                     for s in sorted(by_cat[cat], key=lambda x: x["name"]):
@@ -318,3 +276,4 @@ class ChatProcessor:
                 preface.append(untrusted_context_message("available skills index", "\n".join(lines)))
 
         return preface, rag_sources, web_sources
+

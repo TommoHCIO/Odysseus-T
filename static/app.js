@@ -1018,7 +1018,8 @@ function initializeEventListeners() {
       setTimeout(_goFullscreen, 50);
       setTimeout(_goFullscreen, 200);
     },
-    '/memory':   () => document.getElementById('tool-memory-btn')?.click(),
+    '/memory':   () => workspaceModule.openObsidian(),
+    '/brain':    () => workspaceModule.openObsidian(),
     '/workspace': () => workspaceModule.openIdeaLoop(),
     '/obsidian': () => workspaceModule.openObsidian(),
     '/idea-loop': () => workspaceModule.openIdeaLoop(),
@@ -1488,13 +1489,11 @@ function initializeEventListeners() {
     });
   }
 
-  // Sidebar Memory button
+  // Legacy memory button: compatibility alias for Obsidian Knowledge.
   const toolMemoryBtn = el('tool-memory-btn');
-  if (toolMemoryBtn && memoryModal) {
+  if (toolMemoryBtn) {
     toolMemoryBtn.addEventListener('click', () => {
-      memoryModal.classList.remove('hidden');
-      if (memoryModule && memoryModule.renderMemoryList) memoryModule.renderMemoryList();
-      if (memoryModule && memoryModule.updateMemoryCount) memoryModule.updateMemoryCount();
+      workspaceModule.openObsidian();
     });
   }
 
@@ -3010,7 +3009,7 @@ function initializeEventListeners() {
 
   // Mobile: horizontal swipe on a tabbed window switches tabs. Works for any
   // tab bar whose buttons are siblings and switch on click (Prompt, Library,
-  // Brain, Theme) — we just click the prev/next tab so the existing switch
+  // legacy knowledge, Theme) — we just click the prev/next tab so the existing switch
   // logic runs. Swipes that start on interactive controls (sliders, inputs,
   // the chip dock) are ignored so they don't fight text selection / dragging.
   (function initTabSwipe() {
@@ -3500,7 +3499,6 @@ function startOdysseusApp() {
     'rail-calendar':  'tool-calendar-btn',
     'rail-notes':     'tool-notes-btn',
     'rail-idea-loop': 'tool-idea-loop-btn',
-    'rail-memory':    'tool-memory-btn',
     'rail-theme':     'tool-theme-btn',
     'rail-email':     'email-section-title',
   };

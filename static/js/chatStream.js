@@ -169,15 +169,15 @@ export function handleUIControl(uiData) {
           var fn = mod.open || (mod.default && mod.default.open);
           if (fn) fn();
         }).catch(function(){});
-      } else if (panel === 'notes') {
-        import('./notes.js').then(function(mod) {
-          var fn = mod.openPanel || mod.openNotes || (mod.default && (mod.default.openPanel || mod.default.openNotes));
-          if (fn) fn();
+      } else if (panel === 'notes' || panel === 'obsidian' || panel === 'knowledge' || panel === 'memories' || panel === 'skills') {
+        import('./workspace.js').then(function(mod) {
+          var fn = mod.openObsidian || (mod.default && mod.default.openObsidian);
+          if (fn) fn(panel === 'skills' ? { tab: 'skills' } : undefined);
         }).catch(function(){});
-      } else if (panel === 'memories' || panel === 'skills' || panel === 'settings') {
+      } else if (panel === 'settings') {
         // These live in the sidebar / settings drawer — most just need
         // an existing button click.
-        var ids = { memories: 'tool-memory-btn', skills: 'skills-btn', settings: 'open-settings-btn' };
+        var ids = { settings: 'open-settings-btn' };
         var btn = document.getElementById(ids[panel]);
         if (btn) btn.click();
       }

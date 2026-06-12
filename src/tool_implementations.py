@@ -1661,8 +1661,8 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
             # (the global list read on every chat request) rather than
             # prefs.json. Friendly aliases accepted: "shell" -> "bash",
             # "search" -> "web_search", "browser" -> "builtin_browser",
-            # "documents" -> the document tool set, "memory" ->
-            # manage_memory, etc.
+            # "documents" -> the document tool set, "knowledge"/"memory" ->
+            # manage_knowledge plus the compatibility alias, etc.
             from src.settings import get_setting, save_settings, load_settings
             _ALIASES = {
                 "shell": ["bash"],
@@ -1672,7 +1672,8 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
                 "browser": ["builtin_browser"],
                 "documents": ["create_document", "edit_document", "update_document", "suggest_document"],
                 "doc": ["create_document", "edit_document", "update_document", "suggest_document"],
-                "memory": ["manage_memory"],
+                "knowledge": ["manage_knowledge", "manage_memory"],
+                "memory": ["manage_knowledge", "manage_memory"],
                 "skills": ["manage_skills"],
                 "images": ["generate_image"],
                 "image": ["generate_image"],

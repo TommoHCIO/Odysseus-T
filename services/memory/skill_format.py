@@ -40,8 +40,8 @@ Body sections (any subset; rendered as headings):
     Anything else (raw paragraphs after the last known section) is preserved
     in `body_extra` and round-trips on save.
 
-Usage counters (`uses`, `last_used`) live in a sidecar `_usage.json` keyed
-by skill name, so the SKILL.md file doesn't churn on every retrieval.
+Usage counters and audit fields are stored in the YAML properties so the
+Obsidian vault remains the durable source of truth.
 """
 
 from __future__ import annotations
@@ -332,14 +332,22 @@ class Skill:
     teacher_model: Optional[str] = None
     owner: Optional[str] = None
     created: str = ""                                  # ISO8601
+    genre: str = "runbook"
+    type: str = "skills.skill"
+    related: List[str] = field(default_factory=list)
     when_to_use: str = ""
     procedure: List[str] = field(default_factory=list)
     pitfalls: List[str] = field(default_factory=list)
     verification: List[str] = field(default_factory=list)
     body_extra: str = ""
-    # Sidecar (not persisted in SKILL.md)
     uses: int = 0
     last_used: Optional[int] = None
+    audit_verdict: Optional[str] = None
+    audit_by_teacher: bool = False
+    audit_worker_model: Optional[str] = None
+    audit_teacher_model: Optional[str] = None
+    audited_at: Optional[float] = None
+    necessity: Optional[Dict[str, Any]] = None
     # File path on disk (set when read)
     path: Optional[str] = None
 
@@ -364,6 +372,17 @@ class Skill:
         if self.teacher_model: fm["teacher_model"] = self.teacher_model
         if self.owner:         fm["owner"] = self.owner
         fm["created"] = self.created or _now_iso()
+        fm["genre"] = self.genre or "runbook"
+        fm["type"] = self.type or "skills.skill"
+        if self.related:       fm["related"] = list(self.related)
+        if self.uses:          fm["uses"] = int(self.uses or 0)
+        if self.last_used:     fm["last_used"] = self.last_used
+        if self.audit_verdict: fm["audit_verdict"] = self.audit_verdict
+        if self.audit_by_teacher: fm["audit_by_teacher"] = bool(self.audit_by_teacher)
+        if self.audit_worker_model: fm["audit_worker_model"] = self.audit_worker_model
+        if self.audit_teacher_model: fm["audit_teacher_model"] = self.audit_teacher_model
+        if self.audited_at:    fm["audited_at"] = self.audited_at
+        if self.necessity:     fm["necessity"] = json.dumps(self.necessity, ensure_ascii=False)
         return fm
 
     def to_dict(self) -> Dict[str, Any]:
@@ -383,6 +402,9 @@ class Skill:
             "teacher_model": self.teacher_model,
             "owner": self.owner,
             "created": self.created,
+            "genre": self.genre,
+            "type": self.type,
+            "related": list(self.related),
             "when_to_use": self.when_to_use,
             "procedure": list(self.procedure),
             "pitfalls": list(self.pitfalls),
@@ -390,6 +412,12 @@ class Skill:
             "body_extra": self.body_extra,
             "uses": int(self.uses or 0),
             "last_used": self.last_used,
+            "audit_verdict": self.audit_verdict,
+            "audit_by_teacher": bool(self.audit_by_teacher),
+            "audit_worker_model": self.audit_worker_model,
+            "audit_teacher_model": self.audit_teacher_model,
+            "audited_at": self.audited_at,
+            "necessity": self.necessity,
             "path": self.path,
         }
         # Back-compat aliases for the old API/UI
@@ -420,11 +448,22 @@ class Skill:
             teacher_model=str(fm.get("teacher_model")) if fm.get("teacher_model") else None,
             owner=str(fm.get("owner")) if fm.get("owner") else None,
             created=str(fm.get("created") or _now_iso()),
+            genre=str(fm.get("genre") or "runbook"),
+            type=str(fm.get("type") or "skills.skill"),
+            related=_as_list(fm.get("related")),
             when_to_use=sections["when_to_use"],
             procedure=list(sections["procedure"]),
             pitfalls=list(sections["pitfalls"]),
             verification=list(sections["verification"]),
             body_extra=sections["body_extra"],
+            uses=int(fm.get("uses") or 0),
+            last_used=fm.get("last_used"),
+            audit_verdict=str(fm.get("audit_verdict")) if fm.get("audit_verdict") else None,
+            audit_by_teacher=bool(fm.get("audit_by_teacher")),
+            audit_worker_model=str(fm.get("audit_worker_model")) if fm.get("audit_worker_model") else None,
+            audit_teacher_model=str(fm.get("audit_teacher_model")) if fm.get("audit_teacher_model") else None,
+            audited_at=fm.get("audited_at"),
+            necessity=_parse_embedded_json(fm.get("necessity")),
             path=path,
         )
 
@@ -442,3 +481,17 @@ class Skill:
 
 def _now_iso() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_embedded_json(value: Any) -> Optional[Dict[str, Any]]:
+    if not value:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+    return None

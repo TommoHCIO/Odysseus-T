@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Resilience Mesh — Incident Command PWA</title>
+<style>
+  :root {
+    --primary: #1a5f7a;
+    --primary-dark: #0d3b4f;
+    --primary-light: #e8f4f8;
+    --accent: #e8913a;
+    --accent-dark: #c97720;
+    --danger: #c0392b;
+    --success: #27ae60;
+    --warning: #f39c12;
+    --gray-50: #f8f9fa;
+    --gray-100: #e9ecef;
+    --gray-200: #dee2e6;
+    --gray-300: #ced4da;
+    --gray-400: #adb5bd;
+    --gray-500: #6c757d;
+    --gray-600: #495057;
+    --gray-700: #343a40;
+    --gray-800: #212529;
+    --radius: 8px;
+    --radius-sm: 4px;
+    --shadow: 0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.08);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,.15);
+    --font: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen,Ubuntu,sans-serif;
+    --font-mono: "SF Mono","Fira Code","Cascadia Code",monospace;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:16px;scroll-behavior:smooth}
+  body{font-family:var(--font);background:var(--gray-50);color:var(--gray-800);line-height:1.5;min-height:100vh}
+  a{color:var(--primary);text-decoration:none}
+  a:hover{text-decoration:underline}
+  button{cursor:pointer;font-family:inherit;font-size:inherit;border:none;background:none}
+  input,select,textarea{font-family:inherit;font-size:inherit}
+  :focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:var(--radius-sm)}
+
+  .app-layout{display:flex;min-height:100vh}
+  .sidebar{width:240px;background:var(--gray-800);color:#fff;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100}
+  .sidebar-header{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.1)}
+  .sidebar-header h1{font-size:1.1rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px}
+  .sidebar-header .badge{font-size:.65rem;background:var(--accent);color:#fff;padding:2px 6px;border-radius:4px;font-weight:600;text-transform:uppercase}
+  .sidebar-nav{padding:12px 0;flex:1;overflow-y:auto}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:12px 20px;color:rgba(255,255,255,.7);transition:all .15s;border-left:3px solid transparent;min-height:48px;cursor:pointer}
+  .nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
+  .nav-item.active{background:rgba(255,255,255,.12);color:#fff;border-left-color:var(--accent);font-weight:600}
+  .nav-item .count-badge{margin-left:auto;background:var(--accent);color:#fff;font-size:.7rem;padding:2px 8px;border-radius:10px;font-weight:600}
+  .nav-item .icon{font-size:1.2rem;width:24px;text-align:center}
+  .sidebar-footer{padding:12px 20px;border-top:1px solid rgba(255,255,255,.1)}
+  .offline-toggle{display:flex;align-items:center;gap:8px;color:rgba(255,255,255,.7);font-size:.85rem;cursor:pointer;min-height:44px}
+  .offline-toggle input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+
+  .main-content{margin-left:240px;flex:1;padding:24px 32px;max-width:1200px}
+  .page-header{margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+  .page-header h2{font-size:1.5rem;font-weight:700;color:var(--gray-800)}
+  .page-header p{color:var(--gray-500);font-size:.9rem;margin-top:2px}
+  .page-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+  .card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin-bottom:16px}
+  .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--gray-100)}
+  .card-header h3{font-size:1.05rem;font-weight:600}
+  .card-header .badge{font-size:.75rem;padding:3px 10px;border-radius:12px;font-weight:600}
+  .badge-pending{background:#fff3e0;color:#e65100}
+  .badge-synced{background:#e8f5e9;color:#1b5e20}
+  .badge-conflict{background:#fce4ec;color:#c62828}
+  .badge-active{background:#e3f2fd;color:#0d47a1}
+
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+  .stat-card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 20px;display:flex;flex-direction:column;gap:4px}
+  .stat-card .stat-value{font-size:1.8rem;font-weight:700;color:var(--gray-800)}
+  .stat-card .stat-label{font-size:.8rem;color:var(--gray-500);text-transform:uppercase;letter-spacing:.03em}
+  .stat-card .stat-sub{font-size:.75rem;color:var(--gray-400)}
+  .stat-card.danger .stat-value{color:var(--danger)}
+  .stat-card.warning .stat-value{color:var(--warning)}
+  .stat-card.success .stat-value{color:var(--success)}
+
+  .incident-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .incident-card{border:1px solid var(--gray-200);border-radius:var(--radius);padding:16px;background:#fff;cursor:pointer;transition:box-shadow .15s;position:relative}
+  .incident-card:hover{box-shadow:var(--shadow-lg)}
+  .incident-card h4{font-size:1rem;font-weight:600;margin-bottom:4px}
+  .incident-card .meta{font-size:.8rem;color:var(--gray-500)}
+  .incident-card .status-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .incident-card .status-row .tag{font-size:.7rem;padding:2px 8px;border-radius:4px;background:var(--gray-100)}
+
+  .form-group{margin-bottom:16px}
+  .form-group label{display:block;font-size:.85rem;font-weight:600;margin-bottom:4px;color:var(--gray-700)}
+  .form-group .hint{font-size:.75rem;color:var(--gray-400);margin-top:2px}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:600px){.form-row{grid-template-columns:1fr}}
+  input[type=text],input[type=number],input[type=datetime-local],select,textarea{width:100%;padding:10px 12px;border:1px solid var(--gray-300);border-radius:var(--radius-sm);font-size:.9rem;transition:border-color .15s;background:#fff;min-height:44px}
+  input:focus,select:focus,textarea:focus{border-color:var(--primary);outline:none;box-shadow:0 0 0 3px rgba(26,95,122,.15)}
+  textarea{min-height:80px;resize:vertical}
+  select{-webkit-appearance:none;appearance:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236c757d' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 12px center;padding-right:32px}
+
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 20px;border-radius:var(--radius-sm);font-weight:600;font-size:.85rem;min-height:44px;min-width:44px;transition:all .15s}
+  .btn-primary{background:var(--primary);color:#fff}
+  .btn-primary:hover{background:var(--primary-dark)}
+  .btn-accent{background:var(--accent);color:#fff}
+  .btn-accent:hover{background:var(--accent-dark)}
+  .btn-outline{border:1px solid var(--gray-300);color:var(--gray-700);background:#fff}
+  .btn-outline:hover{background:var(--gray-50);border-color:var(--gray-400)}
+  .btn-danger{background:var(--danger);color:#fff}
+  .btn-danger:hover{background:#a93226}
+  .btn-success{background:var(--success);color:#fff}
+  .btn-success:hover{background:#219a52}
+  .btn-sm{padding:6px 14px;min-height:36px;font-size:.8rem}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn-group{display:flex;gap:8px;flex-wrap:wrap}
+
+  .data-table{width:100%;border-collapse:collapse;font-size:.85rem}
+  .data-table th{text-align:left;padding:10px 12px;border-bottom:2px solid var(--gray-200);font-weight:600;color:var(--gray-600);text-transform:uppercase;font-size:.75rem;letter-spacing:.03em}
+  .data-table td{padding:10px 12px;border-bottom:1px solid var(--gray-100);vertical-align:top}
+  .data-table tr:hover td{background:var(--gray-50)}
+  .data-table .actions{display:flex;gap:4px}
+  .data-table .status-badge{font-size:.7rem;padding:2px 8px;border-radius:10px;font-weight:600;display:inline-block}
+
+  .conflict-item{border:1px solid var(--gray-200);border-radius:var(--radius);padding:16px;margin-bottom:12px;background:#fff;border-left:4px solid var(--danger)}
+  .conflict-item.resolved{border-left-color:var(--success);opacity:.7}
+  .conflict-item h5{font-size:.9rem;font-weight:600;margin-bottom:8px}
+  .conflict-diff{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:8px 0}
+  @media(max-width:600px){.conflict-diff{grid-template-columns:1fr}}
+  .conflict-version{padding:10px;border-radius:var(--radius-sm);font-size:.8rem}
+  .conflict-version.local{background:#fff3e0;border:1px solid #ffe0b2}
+  .conflict-version.remote{background:#e3f2fd;border:1px solid #bbdefb}
+  .conflict-version .label{font-weight:600;font-size:.7rem;text-transform:uppercase;margin-bottom:4px}
+  .conflict-version .value{font-family:var(--font-mono);font-size:.85rem;white-space:pre-wrap;word-break:break-word}
+
+  .toast-container{position:fixed;top:16px;right:16px;z-index:1000;display:flex;flex-direction:column;gap:8px}
+  .toast{background:var(--gray-800);color:#fff;padding:12px 20px;border-radius:var(--radius);box-shadow:var(--shadow-lg);font-size:.85rem;animation:slideIn .2s ease-out;max-width:360px}
+  .toast.success{background:var(--success)}
+  .toast.error{background:var(--danger)}
+  .toast.warning{background:var(--warning);color:var(--gray-800)}
+  @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+  .sync-bar{position:fixed;bottom:0;left:240px;right:0;padding:8px 32px;background:var(--gray-800);color:#fff;font-size:.8rem;display:flex;justify-content:space-between;align-items:center;z-index:50}
+  .sync-bar .status{display:flex;align-items:center;gap:8px}
+  .sync-bar .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .dot.green{background:var(--success);box-shadow:0 0 6px var(--success)}
+  .dot.red{background:var(--danger)}
+  .dot.yellow{background:var(--warning)}
+  .dot.offline{background:var(--gray-400)}
+
+  @media print{
+    .sidebar,.sync-bar,.btn,.page-actions,.offline-toggle{display:none!important}
+    .main-content{margin-left:0;padding:0}
+    .card{box-shadow:none;border:1px solid #ccc;break-inside:avoid}
+    .stat-grid{grid-template-columns:repeat(4,1fr)}
+    .conflict-diff{grid-template-columns:1fr 1fr}
+    body{font-size:11pt}
+    .data-table th{background:#eee}
+  }
+
+  @media(max-width:768px){
+    .sidebar{width:56px;overflow:hidden}
+    .sidebar-header h1 span,.sidebar-header .badge,.nav-item span{display:none}
+    .sidebar-header{padding:12px}
+    .nav-item{justify-content:center;padding:12px;border-left:none}
+    .nav-item.active{border-left:none;border-bottom:3px solid var(--accent)}
+    .nav-item .count-badge{position:absolute;top:4px;right:4px;font-size:.6rem;padding:1px 5px}
+    .nav-item{position:relative}
+    .main-content{margin-left:56px;padding:16px}
+    .sync-bar{left:56px;padding:8px 16px}
+    .stat-grid{grid-template-columns:repeat(2,1fr)}
+    .incident-list{grid-template-columns:1fr}
+    .page-header h2{font-size:1.2rem}
+  }
+  @media(max-width:360px){
+    .stat-grid{grid-template-columns:1fr}
+    .main-content{padding:12px}
+  }
+
+  .mt-8{margin-top:8px}.mt-12{margin-top:12px}.mt-16{margin-top:16px}.mb-8{margin-bottom:8px}.mb-16{margin-bottom:16px}
+  .text-muted{color:var(--gray-500);font-size:.85rem}
+  .hidden{display:none!important}
+  .w-full{width:100%}
+
+  .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:flex-end;justify-content:center}
+  @media(min-width:600px){.modal-overlay{align-items:center}}
+  .modal-content{background:#fff;border-radius:16px 16px 0 0;padding:24px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;animation:slideUp .2s ease-out}
+  @media(min-width:600px){.modal-content{border-radius:var(--radius);max-height:80vh}}
+  @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .modal-content h3{font-size:1.1rem;font-weight:700;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--gray-100)}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:12px;border-top:1px solid var(--gray-100)}
+
+  .empty-state{text-align:center;padding:40px 20px;color:var(--gray-400)}
+  .empty-state .icon{font-size:2.5rem;margin-bottom:8px}
+  .empty-state h4{font-size:1rem;font-weight:600;color:var(--gray-600);margin-bottom:4px}
+  .empty-state p{font-size:.85rem}
+</style>
+</head>
+<body>
+<div class="app-layout" id="app">
+  <nav class="sidebar" role="navigation" aria-label="Main navigation">
+    <div class="sidebar-header">
+      <h1><span>⚡</span><span>Resilience Mesh</span>&nbsp;<span class="badge">v0.1</span></h1>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-item active" data-page="dashboard" role="button" tabindex="0" aria-label="Dashboard">
+        <span class="icon">📊</span><span>Dashboard</span>
+      </div>
+      <div class="nav-item" data-page="incidents" role="button" tabindex="0" aria-label="Incidents ICS-209">
+        <span class="icon">🔥</span><span>ICS-209 Incidents</span>
+        <span class="count-badge" id="incident-count">0</span>
+      </div>
+      <div class="nav-item" data-page="activity-log" role="button" tabindex="0" aria-label="Activity Log ICS-214">
+        <span class="icon">📋</span><span>ICS-214 Activity Log</span>
+        <span class="count-badge" id="log-count">0</span>
+      </div>
+      <div class="nav-item" data-page="resources" role="button" tabindex="0" aria-label="Resource Requests">
+        <span class="icon">🚛</span><span>Resource Requests</span>
+        <span class="count-badge" id="resource-count">0</span>
+      </div>
+      <div class="nav-item" data-page="conflicts" role="button" tabindex="0" aria-label="Conflict Resolution">
+        <span class="icon">⚖️</span><span>Conflict Resolution</span>
+        <span class="count-badge" id="conflict-count">0</span>
+      </div>
+      <div class="nav-item" data-page="sync" role="button" tabindex="0" aria-label="Sync &amp; Export">
+        <span class="icon">🔄</span><span>Sync &amp; Export</span>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <label class="offline-toggle">
+        <input type="checkbox" id="offline-checkbox" aria-label="Simulate offline mode">
+        <span>✈️ Offline Mode</span>
+      </label>
+    </div>
+  </nav>
+
+  <main class="main-content" id="main-content" role="main"></main>
+</div>
+
+<div class="sync-bar" id="sync-bar">
+  <div class="status">
+    <span class="dot green" id="sync-dot"></span>
+    <span id="sync-status">Connected — 0 pending changes</span>
+  </div>
+  <div id="sync-actions">
+    <button class="btn btn-sm btn-accent" id="sync-now-btn">🔄 Sync Now</button>
+    <button class="btn btn-sm btn-outline" id="export-json-btn" style="background:#fff;color:var(--gray-700)">⬇️ Export JSON</button>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+const DB_KEY = 'resilience_mesh_db';
+
+function loadDB() {
+  try { const raw = localStorage.getItem(DB_KEY); if (raw) return JSON.parse(raw); } catch(e) {}
+  return getDefaultDB();
+}
+function getDefaultDB() {
+  return { incidents: [], activityLogs: [], resourceRequests: [], conflicts: [], pendingChanges: 0, lastSync: null, isOffline: false, conflictIdCounter: 0 };
+}
+function saveDB(db) {
+  try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e) { showToast('Storage full — export JSON backup', 'warning'); }
+}
+
+let db = loadDB();
+let currentPage = 'dashboard';
+
+if (db.incidents.length === 0) seedSampleData();
+
+function seedSampleData() {
+  const now = new Date();
+  db.incidents = [
+    { id:'INC-2025-001', name:'Riverbend Wildfire', type:'Wildland Fire', size:1250, percentContained:35, operationalPeriodStart:'2025-06-12T06:00', operationalPeriodEnd:'2025-06-12T18:00', personnel:{Firefighters:85,'Engine Crews':12,'Air Support':3}, equipment:{Engines:8,Dozers:3,Helicopters:2}, fuelType:'Timber/Grass', hazards:'Steep terrain, power lines', situationSummary:'Fire progressing SE at moderate rate. Structure defense in progress at Riverbend Estates.', remarks:'Red flag warning in effect until 2200.', status:'active', createdAt:now.toISOString(), updatedAt:now.toISOString(), synced:true, version:1 },
+    { id:'INC-2025-002', name:'Harbor City Flood Response', type:'Flood', size:0, percentContained:0, operationalPeriodStart:'2025-06-11T12:00', operationalPeriodEnd:'2025-06-12T12:00', personnel:{'Swift Water Rescue':24,Medical:8,Logistics:15}, equipment:{Boats:6,Ambulances:4,'High-water Vehicles':3}, fuelType:'N/A', hazards:'Fast-moving water, downed power lines', situationSummary:'Urban flooding affecting 200+ structures. Evacuations underway in Zones A and B.', remarks:'Shelter opened at Harbor City High School.', status:'active', createdAt:now.toISOString(), updatedAt:now.toISOString(), synced:true, version:1 }
+  ];
+  db.activityLogs = [
+    { id:'log-001', incidentId:'INC-2025-001', operatorName:'S. Chen', activity:'Initial size-up complete. SE perimeter estimated at 2.5 miles.', operationalPeriod:'Day', timestamp:'2025-06-12T07:15', createdAt:now.toISOString(), synced:true },
+    { id:'log-002', incidentId:'INC-2025-001', operatorName:'M. Rivera', activity:'Air attack dropping retardant on SE flank. Requesting 2 additional helicopters.', operationalPeriod:'Day', timestamp:'2025-06-12T08:30', createdAt:now.toISOString(), synced:true },
+    { id:'log-003', incidentId:'INC-2025-002', operatorName:'J. Thompson', activity:'Zone A evacuation complete. Zone B underway. Shelter capacity: 150.', operationalPeriod:'Day', timestamp:'2025-06-12T09:00', createdAt:now.toISOString(), synced:true }
+  ];
+  db.resourceRequests = [
+    { id:'RR-001', incidentId:'INC-2025-001', resourceType:'Helicopter', quantity:2, status:'Pending', notes:'Type 1 or 2 with bucket capability', dispatcherAssignment:'', createdAt:now.toISOString(), updatedAt:now.toISOString(), synced:true },
+    { id:'RR-002', incidentId:'INC-2025-001', resourceType:'Firefighter Crew', quantity:50, status:'Approved', notes:'Hand crews for line construction', dispatcherAssignment:'Northwest Dispatch', createdAt:now.toISOString(), updatedAt:now.toISOString(), synced:true },
+    { id:'RR-003', incidentId:'INC-2025-002', resourceType:'Sandbags', quantity:5000, status:'Pending', notes:'Priority for Zone B levee reinforcement', dispatcherAssignment:'', createdAt:now.toISOString(), updatedAt:now.toISOString(), synced:true }
+  ];
+  db.pendingChanges = 0;
+  db.lastSync = now.toISOString();
+  saveDB(db);
+}
+
+function showToast(message, type='info') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div'); t.className='toast '+type; t.textContent=message;
+  c.appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300)},3000);
+}
+
+function navigate(page) {
+  currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
+  const pages = { dashboard:renderDashboard, incidents:renderIncidents, 'activity-log':renderActivityLog, resources:renderResources, conflicts:renderConflicts, sync:renderSync };
+  (pages[page]||renderDashboard)(document.getElementById('main-content'));
+  updateBadgeCounts();
+  updateSyncBar();
+}
+
+function renderDashboard(el) {
+  const active = db.incidents.filter(i=>i.status==='active');
+  const pending = db.resourceRequests.filter(r=>r.status==='Pending');
+  const unresolved = db.conflicts.filter(c=>!c.resolved);
+  el.innerHTML = `
+    <div class="page-header"><div><h2>📊 Operations Dashboard</h2><p>Real-time incident status for active responses</p></div>
+    <div class="page-actions"><button class="btn btn-primary" onclick="showNewIncidentModal()">+ New Incident</button><button class="btn btn-outline" onclick="showNewLogModal()">+ Log Entry</button></div></div>
+    <div class="stat-grid">
+      <div class="stat-card ${active.length?'warning':''}"><span class="stat-value">${active.length}</span><span class="stat-label">Active Incidents</span><span class="stat-sub">${db.incidents.length} total</span></div>
+      <div class="stat-card success"><span class="stat-value">${db.activityLogs.length}</span><span class="stat-label">Activity Log Entries</span><span class="stat-sub">ICS-214 entries</span></div>
+      <div class="stat-card ${pending.length?'danger':''}"><span class="stat-value">${pending.length}</span><span class="stat-label">Pending Resource Requests</span><span class="stat-sub">${db.resourceRequests.length} total</span></div>
+      <div class="stat-card ${unresolved.length?'danger':''}"><span class="stat-value">${unresolved.length}</span><span class="stat-label">Unresolved Conflicts</span><span class="stat-sub">Requires manual review</span></div>
+    </div>
+    <div class="card"><div class="card-header"><h3>Active Incidents</h3><span class="badge badge-active">${active.length} active</span></div>
+    ${active.length===0?`<div class="empty-state"><div class="icon">🔥</div><h4>No active incidents</h4><p>Create a new ICS-209 incident to begin tracking.</p></div>`:
+    `<div class="incident-list">${active.map(i=>`<div class="incident-card" onclick="navigate('incidents');setTimeout(()=>editIncident('${i.id}'),50)" role="button" tabindex="0">
+      <h4>${i.name}</h4><div class="meta">${i.id} · ${i.type} · ${Math.round(i.percentContained)}% contained</div>
+      <div class="status-row"><span class="tag">${i.personnel?Object.values(i.personnel).reduce((a,b)=>a+b,0):0} personnel</span><span class="tag">${i.size>0?i.size+' acres':'N/A size'}</span><span class="tag">${(i.operationalPeriodStart||'').slice(11,16)}-${(i.operationalPeriodEnd||'').slice(11,16)}</span></div>
+    </div>`).join('')}</div>`}
+    </div>
+    <div class="card"><div class="card-header"><h3>Recent Activity</h3><span class="badge badge-synced">Last ${db.activityLogs.length} entries</span></div>
+    ${db.activityLogs.length===0?`<div class="empty-state"><div class="icon">📋</div><h4>No activity entries yet</h4><p>Add ICS-214 entries to track operational activities.</p></div>`:
+    `<table class="data-table"><thead><tr><th>Time</th><th>Incident</th><th>Operator</th><th>Activity</th></tr></thead><tbody>
+    ${db.activityLogs.slice(-5).reverse().map(l=>`<tr><td style="white-space:nowrap">${(l.timestamp||'').slice(11,16)}</td><td>${l.incidentId}</td><td>${l.operatorName}</td><td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.activity}</td></tr>`).join('')}
+    </tbody></table>`}
+    </div>`;
+}
+
+function renderIncidents(el) {
+  el.innerHTML = `
+    <div class="page-header"><div><h2>🔥 ICS-209 Incident Snapshots</h2><p>Create and manage incident reports</p></div>
+    <div class="page-actions"><button class="btn btn-primary" onclick="showNewIncidentModal()">+ New Incident</button></div></div>
+    ${db.incidents.length===0?`<div class="card"><div class="empty-state"><div class="icon">🔥</div><h4>No incidents recorded</h4><p>Create your first ICS-209 incident snapshot to begin.</p><button class="btn btn-primary mt-12" onclick="showNewIncidentModal()">Create Incident</button></div></div>`:
+    `<div class="card"><table class="data-table"><thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Size</th><th>Contained</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+    ${db.incidents.map(i=>`<tr><td><strong>${i.id}</strong></td><td>${i.name}</td><td><span class="status-badge" style="background:var(--gray-100)">${i.type}</span></td><td>${i.size>0?i.size+' ac':'—'}</td><td>${i.percentContained}%</td><td><span class="status-badge ${i.status==='active'?'badge-active':'badge-synced'}">${i.status}</span></td><td class="actions"><button class="btn btn-sm btn-outline" onclick="editIncident('${i.id}')">Edit</button><button class="btn btn-sm btn-outline" onclick="duplicateIncident('${i.id}')">Duplicate</button></td></tr>`).join('')}
+    </tbody></table></div>`}
+  `;
+}
+
+function renderActivityLog(el) {
+  el.innerHTML = `
+    <div class="page-header"><div><h2>📋 ICS-214 Activity Log</h2><p>Append-only operational log entries</p></div>
+    <div class="page-actions"><button class="btn btn-primary" onclick="showNewLogModal()">+ Add Entry</button></div></div>
+    ${db.activityLogs.length===0?`<div class="card"><div class="empty-state"><div class="icon">📋</div><h4>No activity log entries</h4><p>Record operational activities, decisions, and handoff notes.</p><button class="btn btn-primary mt-12" onclick="showNewLogModal()">Add Entry</button></div></div>`:
+    `<div class="card"><table class="data-table"><thead><tr><th>Time</th><th>Incident</th><th>Operator</th><th>Period</th><th>Activity</th><th>Synced</th></tr></thead><tbody>
+    ${db.activityLogs.slice().reverse().map(l=>`<tr><td style="white-space:nowrap">${l.timestamp||'—'}</td><td>${l.incidentId}</td><td>${l.operatorName}</td><td><span class="status-badge" style="background:var(--gray-100)">${l.operationalPeriod}</span></td><td style="max-width:300px">${l.activity}</td><td>${l.synced?'✅':'⏳'}</td></tr>`).join('')}
+    </tbody></table></div>`}
+  `;
+}
+
+function renderResources(el) {
+  el.innerHTML = `
+    <div class="page-header"><div><h2>🚛 Resource Requests</h2><p>Request, approve, and fulfill resources</p></div>
+    <div class="page-actions"><button class="btn btn-primary" onclick="showNewResourceModal()">+ New Request</button></div></div>
+    ${db.resourceRequests.length===0?`<div class="card"><div class="empty-state"><div class="icon">🚛</div><h4>No resource requests</h4><p>Request personnel, equipment, or supplies for active incidents.</p><button class="btn btn-primary mt-12" onclick="showNewResourceModal()">New Request</button></div></div>`:
+    `<div class="card"><table class="data-table"><thead><tr><th>ID</th><th>Incident</th><th>Resource</th><th>Qty</th><th>Status</th><th>Dispatcher</th><th>Actions</th></tr></thead><tbody>
+    ${db.resourceRequests.map(r=>`<tr><td><strong>${r.id}</strong></td><td>${r.incidentId}</td><td>${r.resourceType}</td><td>${r.quantity}</td>
+    <td><span class="status-badge ${r.status==='Pending'?'badge-pending':r.status==='Approved'?'badge-active':r.status==='Fulfilled'?'badge-synced':'badge-conflict'}">${r.status}</span></td>
+    <td>${r.dispatcherAssignment||'—'}</td>
+    <td class="actions">${r.status==='Pending'?`<button class="btn btn-sm btn-success" onclick="approveResource('${r.id}')">Approve</button>`:''}${r.status==='Approved'?`<button class="btn btn-sm btn-outline" onclick="fulfillResource('${r.id}')">Fulfill</button>`:''}${r.status!=='Fulfilled'?`<button class="btn btn-sm btn-outline" onclick="editResource('${r.id}')">Edit</button>`:''}</td></tr>`).join('')}
+    </tbody></table></div>`}
+  `;
+}
+
+function renderConflicts(el) {
+  const unresolved = db.conflicts.filter(c=>!c.resolved);
+  const resolved = db.conflicts.filter(c=>c.resolved);
+  el.innerHTML = `
+    <div class="page-header"><div><h2>⚖️ Conflict Resolution</h2><p>Review and resolve sync conflicts for LWW+audit fields</p></div>
+    <div class="page-actions"><button class="btn btn-accent" onclick="simulateConflict()">+ Simulate Conflict</button></div></div>
+    ${unresolved.length===0&&resolved.length===0?`<div class="card"><div class="empty-state"><div class="icon">⚖️</div><h4>No conflicts detected</h4><p>All data is consistent across devices. Conflicts appear when two field teams edit the same text field offline.</p><button class="btn btn-accent mt-12" onclick="simulateConflict()">Simulate a Conflict</button></div></div>`:''}
+    ${unresolved.length>0?`<div class="card"><div class="card-header"><h3>Unresolved Conflicts (${unresolved.length})</h3><span class="badge badge-conflict">Requires review</span></div>
+    ${unresolved.map(c=>`<div class="conflict-item" id="conflict-${c.id}">
+      <h5>${c.field} — ${c.documentType}: ${c.documentId}</h5><p class="text-muted mb-8">Conflicting field: <strong>${c.field}</strong> · ${c.timestamp}</p>
+      <div class="conflict-diff"><div class="conflict-version local"><div class="label">📱 Local (${c.localAuthor})</div><div class="value">${escapeHtml(c.localValue)}</div></div>
+      <div class="conflict-version remote"><div class="label">☁️ Remote (${c.remoteAuthor})</div><div class="value">${escapeHtml(c.remoteValue)}</div></div></div>
+      <div class="btn-group mt-8"><button class="btn btn-sm btn-primary" onclick="resolveConflict('${c.id}','local')">Keep Local</button><button class="btn btn-sm btn-accent" onclick="resolveConflict('${c.id}','remote')">Keep Remote</button></div></div>`).join('')}
+    </div>`:''}
+    ${resolved.length>0?`<div class="card"><div class="card-header"><h3>Resolved Conflicts (${resolved.length})</h3><span class="badge badge-synced">Completed</span></div>
+    ${resolved.slice(-3).reverse().map(c=>`<div class="conflict-item resolved"><h5>${c.field} — ${c.documentType}: ${c.documentId} <span class="badge badge-synced" style="font-size:.7rem">✅ ${c.resolution}</span></h5><p class="text-muted">Resolved: kept ${c.resolution} version · ${c.timestamp}</p></div>`).join('')}
+    </div>`:''}
+  `;
+}
+
+function simulateConflict() {
+  if (db.incidents.length===0) { showToast('Create an incident first to simulate a conflict','warning'); return; }
+  const inc = db.incidents[Math.floor(Math.random()*db.incidents.length)];
+  db.conflictIdCounter++;
+  const conflict = { id:'conflict-'+db.conflictIdCounter, documentType:'Incident', documentId:inc.id, field:'situationSummary', localValue:inc.situationSummary, remoteValue:inc.situationSummary+' [UPDATE: Structure protection expanded to include Riverbend Elementary School. Three additional engines requested.]', localAuthor:'Field Team Alpha', remoteAuthor:'Field Team Bravo', timestamp:new Date().toLocaleString(), resolved:false, resolution:null };
+  db.conflicts.push(conflict);
+  db.pendingChanges++;
+  saveDB(db);
+  renderPage(currentPage);
+  updateBadgeCounts();
+  updateSyncBar();
+  showToast('New conflict detected — manual review required','error');
+}
+
+function resolveConflict(conflictId, choice) {
+  const conflict = db.conflicts.find(c=>c.id===conflictId);
+  if (!conflict) return;
+  conflict.resolved = true;
+  conflict.resolution = choice;
+  const incident = db.incidents.find(i=>i.id===conflict.documentId);
+  if (incident) {
+    incident[conflict.field] = choice==='local'?conflict.localValue:conflict.remoteValue;
+    incident.updatedAt = new Date().toISOString();
+  }
+  const auditField = '_auditTrail_'+conflict.field;
+  if (!incident[auditField]) incident[auditField] = [];
+  incident[auditField].push({ resolvedAt:new Date().toISOString(), chosen:choice, localValue:conflict.localValue, remoteValue:conflict.remoteValue });
+  saveDB(db);
+  renderPage(currentPage);
+  updateBadgeCounts();
+  showToast('Conflict resolved — kept '+choice+' version','success');
+}
+
+function renderSync(el) {
+  const lastSync = db.lastSync?new Date(db.lastSync).toLocaleString():'Never';
+  el.innerHTML = `
+    <div class="page-header"><div><h2>🔄 Sync &amp; Export</h2><p>Manual sync control, offline fallback, and data export</p></div></div>
+    <div class="card"><div class="card-header"><h3>Sync Status</h3><span class="badge ${db.isOffline?'badge-conflict':db.pendingChanges>0?'badge-pending':'badge-synced'}">${db.isOffline?'Offline':db.pendingChanges>0?db.pendingChanges+' pending':'Synced'}</span></div>
+    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)"><div><div class="text-muted" style="font-size:.75rem;text-transform:uppercase">Last Sync</div><div style="font-weight:600">${lastSync}</div></div>
+    <div><div class="text-muted" style="font-size:.75rem;text-transform:uppercase">Pending Changes</div><div style="font-weight:600">${db.pendingChanges}</div></div>
+    <div><div class="text-muted" style="font-size:.75rem;text-transform:uppercase">Mode</div><div style="font-weight:600">${db.isOffline?'✈️ Offline':'🌐 Online'}</div></div></div>
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-accent" onclick="performSync()" ${db.isOffline?'disabled':''}>🔄 Sync Now</button>
+      <button class="btn btn-outline" onclick="exportJSON()">⬇️ Export JSON Backup</button>
+      <button class="btn btn-outline" onclick="importJSON()">📤 Import JSON</button>
+      <button class="btn btn-outline" onclick="clearAllData()">🗑️ Clear All Data</button>
+    </div>
+    <p class="text-muted mt-12" style="font-size:.8rem">ℹ️ In offline mode, all data is stored locally. Click "Sync Now" when online to push changes. Conflicts are detected for LWW+audit fields (narrative, notes, activity text).</p></div>
+    <div class="card"><div class="card-header"><h3>Data Storage</h3></div>
+    <div style="font-size:.85rem"><p><strong>Storage:</strong> localStorage (IndexedDB in production)</p>
+    <p><strong>Persistence:</strong> ${navigator.storage?.persist?'navigator.storage.persist() available':'not available in this browser'}</p>
+    <p><strong>Usage:</strong> ${Math.round(new Blob([JSON.stringify(db)]).size/1024)+' KB'}</p>
+    <p><strong>Schema:</strong> v1 — CRDT hybrid per field audit table</p></div></div>
+    <div class="card"><div class="card-header"><h3>Architecture Summary</h3></div>
+    <div style="font-size:.8rem;line-height:1.7"><p><strong>Sync topology:</strong> Star (field devices → central RxDB/CouchDB server)</p>
+    <p><strong>Conflict strategy:</strong> Hybrid — CRDT auto-merge for structured fields + LWW with audit trail for free-text</p>
+    <p><strong>Schema audit:</strong> Per Council schema audit table — each ICS-209/214 field mapped to merge strategy</p>
+    <p><strong>Offline fallback:</strong> Manual JSON export/import</p></div></div>`;
+}
+
+function performSync() {
+  if (db.isOffline) { showToast('Cannot sync while offline','error'); return; }
+  db.pendingChanges = 0;
+  db.incidents.forEach(i=>{i.synced=true;});
+  db.activityLogs.forEach(l=>{l.synced=true;});
+  db.resourceRequests.forEach(r=>{r.synced=true;});
+  db.lastSync = new Date().toISOString();
+  saveDB(db);
+  renderPage(currentPage);
+  updateBadgeCounts();
+  updateSyncBar();
+  showToast('Sync complete — all changes pushed to server','success');
+}
+
+function exportJSON() {
+  const blob = new Blob([JSON.stringify(db,null,2)],{type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='resilience-mesh-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click(); URL.revokeObjectURL(url);
+  showToast('JSON backup downloaded','success');
+}
+
+function importJSON() {
+  const input = document.createElement('input'); input.type='file'; input.accept='.json';
+  input.onchange = e => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.incidents||!data.activityLogs) { showToast('Invalid backup file','error'); return; }
+        db = data; saveDB(db); renderPage(currentPage); updateBadgeCounts(); updateSyncBar();
+        showToast('Backup imported successfully','success');
+      } catch(err) { showToast('Invalid JSON file','error'); }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+function clearAllData() {
+  if (!confirm('This will delete ALL data. Continue?')) return;
+  db = getDefaultDB(); saveDB(db); seedSampleData(); renderPage(currentPage); updateBadgeCounts(); updateSyncBar();
+  showToast('All data cleared and re-seeded with sample data','warning');
+}
+
+function showModal(html) {
+  const overlay = document.createElement('div'); overlay.className='modal-overlay';
+  overlay.innerHTML = '<div class="modal-content">'+html+'</div>';
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove()});
+  document.body.appendChild(overlay);
+  const firstInput = overlay.querySelector('input,select,textarea');
+  if (firstInput) setTimeout(()=>firstInput.focus(),100);
+}
+function closeModal() { document.querySelector('.modal-overlay')?.remove(); }
+
+function showNewIncidentModal() {
+  showModal(`
+    <h3>🔥 New ICS-209 Incident</h3>
+    <form id="incident-form" onsubmit="createIncident(event)">
+      <div class="form-row"><div class="form-group"><label for="inc-name">Incident Name *</label><input type="text" id="inc-name" required placeholder="e.g., Riverbend Wildfire"></div>
+      <div class="form-group"><label for="inc-type">Incident Type *</label><select id="inc-type" required><option value="">Select type...</option>${['Wildland Fire','Flood','Hurricane','Earthquake','HazMat','Search & Rescue','Civil Disturbance','Other'].map(t=>'<option value="'+t+'">'+t+'</option>').join('')}</select></div></div>
+      <div class="form-row"><div class="form-group"><label for="inc-size">Size (acres)</label><input type="number" id="inc-size" min="0" placeholder="0"></div>
+      <div class="form-group"><label for="inc-contained">% Contained</label><input type="number" id="inc-contained" min="0" max="100" placeholder="0"></div></div>
+      <div class="form-row"><div class="form-group"><label for="inc-op-start">Op Period Start</label><input type="datetime-local" id="inc-op-start"></div>
+      <div class="form-group"><label for="inc-op-end">Op Period End</label><input type="datetime-local" id="inc-op-end"></div></div>
+      <div class="form-group"><label for="inc-fuel">Fuel Type / Hazard</label><input type="text" id="inc-fuel" placeholder="e.g., Timber/Grass"></div>
+      <div class="form-group"><label for="inc-summary">Situation Summary <span class="hint">(LWW+audit)</span></label><textarea id="inc-summary" rows="3"></textarea></div>
+      <div class="form-group"><label for="inc-remarks">Remarks <span class="hint">(LWW+audit)</span></label><textarea id="inc-remarks" rows="2"></textarea></div>
+      <div class="form-group"><label>Personnel <span class="hint">(CRDT-safe)</span></label><div class="form-row"><input type="number" id="inc-per-ff" placeholder="Firefighters" min="0"><input type="number" id="inc-per-eng" placeholder="Engine Crews" min="0"></div></div>
+      <div class="form-group"><label>Equipment <span class="hint">(CRDT-safe)</span></label><div class="form-row"><input type="number" id="inc-eq-eng" placeholder="Engines" min="0"><input type="number" id="inc-eq-heli" placeholder="Helicopters" min="0"></div></div>
+      <div class="modal-actions"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Create Incident</button></div>
+    </form>`);
+}
+
+function createIncident(e) {
+  e.preventDefault();
+  const name = document.getElementById('inc-name').value.trim();
+  const type = document.getElementById('inc-type').value;
+  if (!name||!type) { showToast('Name and type are required','error'); return; }
+  const now = new Date();
+  const id = 'INC-'+now.getFullYear()+'-'+String(db.incidents.length+1).padStart(3,'0');
+  db.incidents.push({ id, name, type, size:parseInt(document.getElementById('inc-size').value)||0, percentContained:parseInt(document.getElementById('inc-contained').value)||0, operationalPeriodStart:document.getElementById('inc-op-start').value||now.toISOString().slice(0,16), operationalPeriodEnd:document.getElementById('inc-op-end').value||'', fuelType:document.getElementById('inc-fuel').value.trim()||'N/A', hazards:'', situationSummary:document.getElementById('inc-summary').value.trim()||'', remarks:document.getElementById('inc-remarks').value.trim()||'', personnel:{Firefighters:parseInt(document.getElementById('inc-per-ff').value)||0,'Engine Crews':parseInt(document.getElementById('inc-per-eng').value)||0}, equipment:{Engines:parseInt(document.getElementById('inc-eq-eng').value)||0,Helicopters:parseInt(document.getElementById('inc-eq-heli').value)||0}, status:'active', createdAt:now.toISOString(), updatedAt:now.toISOString(), synced:false, version:1 });
+  db.pendingChanges++;
+  saveDB(db); closeModal(); renderPage(currentPage); updateBadgeCounts(); updateSyncBar();
+  showToast('Incident '+id+' created','success');
+}
+
+function editIncident(id) {
+  const inc = db.incidents.find(i=>i.id===id);
+  if (!inc) return;
+  showModal(`
+    <h3>✏️ Edit Incident: ${inc.id}</h3>
+    <form id="incident-edit-form" onsubmit="updateIncident(event,'${id}')">
+      <div class="form-row"><div class="form-group"><label for="inc-name">Name *</label><input type="text" id="inc-name" required value="${escapeHtml(inc.name)}"></div>
+      <div class="form-group"><label for="inc-type">Type *</label><select id="inc-type" required>${['Wildland Fire','Flood','Hurricane','Earthquake','HazMat','Search & Rescue','Civil Disturbance','Other'].map(t=>'<option value="'+t+'"'+(inc.type===t?' selected':'')+'>'+t+'</option>').join('')}</select></div></div>
+      <div class="form-row"><div class="form-group"><label for="inc-size">Size (acres) <span class="hint">(CRDT-safe)</span></label><input type="number" id="inc-size" min="0" value="${inc.size}"></div>
+      <div class="form-group"><label for="inc-contained">% Contained <span class="hint">(CRDT-safe)</span></label><input type="number" id="inc-contained" min="0" max="100" value="${inc.percentContained}"></div></div>
+      <div class="form-group"><label for="inc-summary">Situation Summary <span class="hint">(LWW+audit)</span></label><textarea id="inc-summary" rows="3">${escapeHtml(inc.situationSummary)}</textarea></div>
+      <div class="form-group"><label for="inc-remarks">Remarks <span class="hint">(LWW+audit)</span></label><textarea id="inc-remarks" rows="2">${escapeHtml(inc.remarks)}</textarea></div>
+      <div class="form-row"><div class="form-group"><label>Firefighters</label><input type="number" id="inc-per-ff" min="0" value="${inc.personnel?.Firefighters||0}"></div>
+      <div class="form-group"><label>Engine Crews</label><input type="number" id="inc-per-eng" min="0" value="${inc.personnel?.['Engine Crews']||0}"></div></div>
+      <div class="form-group"><label>Status</label><select id="inc-status"><option value="active" ${inc.status==='active'?'selected':''}>Active</option><option value="contained" ${inc.status==='contained'?'selected':''}>Contained</option><option value="closed" ${inc.status==='closed'?'selected':''}>Closed</option></select></div>
+      <div class="modal-actions"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Save Changes</button></div>
+    </form>`);
+}
+
+function updateIncident(e,id) {
+  e.preventDefault();
+  const inc = db.incidents.find(i=>i.id===id); if (!inc) return;
+  inc.name = document.getElementById('inc-name').value.trim();
+  inc.type = document.getElementById('inc-type').value;
+  inc.size = parseInt(document.getElementById('inc-size').value)||0;
+  inc.percentContained = parseInt(document.getElementById('inc-contained').value)||0;
+  inc.situationSummary = document.getElementById('inc-summary').value.trim();
+  inc.remarks = document.getElementById('inc-remarks').value.trim();
+  inc.personnel = {Firefighters:parseInt(document.getElementById('inc-per-ff').value)||0,'Engine Crews':parseInt(document.getElementById('inc-per-eng').value)||0};
+  inc.status = document.getElementById('inc-status').value;
+  inc.updatedAt = new Date().toISOString();
+  inc.synced = false;
+  db.pendingChanges++;
+  saveDB(db); closeModal(); renderPage(currentPage); updateBadgeCounts(); updateSyncBar();
+  showToast('Incident updated','success');
+}
+
+function duplicateIncident(id) {
+  const inc = db.incidents.find(i=>i.id===id); if (!inc) return;
+  const now = new Date();
+  const newId = 'INC-'+now.getFullYear()+'-'+String(db.incidents.length+1).padStart(3,'0');
+  const copy = JSON.parse(JSON.stringify(inc));
+  copy.id = newId; copy.name = inc.name+' (Copy)'; copy.createdAt = now.toISOString(); copy.updatedAt = now.toISOString(); copy.synced = false;
+  db.incidents.push(copy); db.pendingChanges++;
+  saveDB(db); renderPage(currentPage); updateBadgeCounts(); updateSyncBar();
+  showToast('Duplicated as '+newId,'success');
+}
+
+function showNewLogModal() {
+  if (db.incidents.length===0) { showToast('Create an incident first','warning'); return; }
+  showModal(`
+    <h3>📋 New ICS-214 Activity Entry</h3>
+    <form id="log-form" onsubmit="createLogEntry(event)">
+      <div class="form-group"><label for="log-incident">Incident *</label><select id="log-incident" required><option value="">Select incident...</option>${db.incidents.map(i=>'<option value="'+i.id+'">'+i.id+' — '+i.name+'</option>').join('')}</select></div>
+      <div class="form-group"><label for="log-operator">Operator *</label><input type="text" id="log-operator" required placeholder="e.g., S. Chen"></div>
+      <div class="form-group"><label for="log-activity">Activity * <span class="hint">(LWW+audit)</span></label><textarea id="log-activity" rows="3" required></textarea></div>
+      <div class="form-row"><div class="form-group"><label for="log-period">Period</label><select id="log-period"><option value="Day">Day</option><option value="Night">Night</option><option value="Operational">Operational (24h)</option></select></div>
+      <div class="form-group"><label for="log-time">Timestamp</label><input type="datetime-local" id="log-time"></div></div>
+      <div class="modal-actions"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Add Entry</button></div>
+    </form>`);
+}
+
+function createLogEntry(e) {
+  e.preventDefault();
+  const incidentId = document.getElementById('log-incident').value;
+  const operatorName = document.getElementById('log-operator').value.trim();
+  const activity = document.getElementById('log-activity').value.trim();
+  if (!incidentId||!operatorName||!activity) { showToast('All required fields must be filled','error'); return; }
+  const now = new Date();
+  db.activityLogs.push({ id:'log-'+Date.now()+'-'+Math.random().toString(36).slice(2,6), incidentId, operatorName, activity, operationalPeriod:document.getElementById('log-period').value, timestamp:document.getElementById('log-time').value||now.toISOString().slice(0,16), createdAt:now.toISOString(), synced:false });
+  db.pendingChanges++;
+  saveDB(db); closeModal(); renderPage(currentPage); updateBadgeCounts(); updateSyncBar();
+  showToast('Activity log entry added','success');
+}
+
+function showNewResourceModal() {
+  if (db.incidents.length===0) { showToast('Create an incident first','warning'); return; }
+  showModal(`
+    <h3>🚛 New Resource Request</h3>
+    <form id="resource-form" onsubmit="createResourceRequest(event)">
+      <div class="form-group"><label for="rr-incident">Incident *</label><select id="rr-incident" required><option value="">Select incident...</option>${db.incidents.map(i=>'<option value="'+i.id+'">'+i.id+' — '+i.name+'</option>').join('')}</select></div>
+      <div class="form-row"><div class="form-group"><label for="rr-type">Resource Type *</label><select id="rr-type" required><option value="">Select type...</option>${['Firefighter Crew','Helicopter','Engine','Dozer','Ambulance','Boat','High-water Vehicle','Sandbags','MREs','Water','Generator','Other'].map(t=>'<option value="'+t+'">'+t+'</option>').join('')}</select></div>
+      <div class="form-group"><label for="rr-qty">Quantity *</label><input type="number" id="rr-qty" min="1" required></div></div>
+      <div class="form-group"><label for="rr-notes">Notes <span class="hint">(LWW+audit)</span></label><textarea id="rr-notes" rows="2"></textarea></div>
+      <div class="modal-actions"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Submit Request</button></div>
+    </form>`);
+}
+
+function createResourceRequest(e) {
+  e.preventDefault();
+  const incidentId = document.getElementById('rr-incident').value;
+  const resourceType = document.getElementById('rr-type').value;
+  const quantity = parseInt(document.getElementById('rr-qty').value);
+  if (!incidentId||!resourceType||!quantity) { showToast('Incident, type, and quantity required','error'); return; }
+  const now = new Date();
+  db.resourceRequests.push({ id:'RR-'+String(db.resourceRequests.length+1).padStart(3,'0'), incidentId, resourceType, quantity, status:'Pending', notes:document.getElementById('rr-notes').value.trim(), dispatcherAssignment:'', createdAt:now.toISOString(), updatedAt:now.toISOString(), synced:false });
+  db.pendingChanges++;
+  saveDB(db); closeModal(); renderPage(currentPage); updateBadgeCounts(); updateSyncBar();
+  showToast('Resource request submitted','success');
+}
+
+function approveResource(id) { const r=db.resourceRequests.find(x=>x.id===id); if(!r)return; r.status='Approved'; r.updatedAt=new Date().toISOString(); r.synced=false; db.pendingChanges++; saveDB(db); renderPage(currentPage); updateBadgeCounts(); showToast(id+' approved','success'); }
+function fulfillResource(id) { const r=db.resourceRequests.find(x=>x.id===id); if(!r)return; r.status='Fulfilled'; r.updatedAt=new Date().toISOString(); r.synced=false; db.pendingChanges++; saveDB(db); renderPage(currentPage); updateBadgeCounts(); showToast(id+' fulfilled','success'); }
+
+function editResource(id) {
+  const rr = db.resourceRequests.find(r=>r.id===id); if (!rr) return;
+  showModal(`
+    <h3>✏️ Edit Resource: ${rr.id}</h3>
+    <form id="resource-edit-form" onsubmit="updateResource(event,'${id}')">
+      <div class="form-group"><label for="rr-type">Resource Type</label><input type="text" id="rr-type" value="${escapeHtml(rr.resourceType)}"></div>
+      <div class="form-group"><label for="rr-qty">Quantity</label><input type="number" id="rr-qty" min="1" value="${rr.quantity}"></div>
+      <div class="form-group"><label for="rr-notes">Notes</label><textarea id="rr-notes" rows="2">${escapeHtml(rr.notes)}</textarea></div>
+      <div class="modal-actions"><button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
+    </form>`);
+}
+
+function updateResource(e,id) {
+  e.preventDefault();
+  const rr = db.resourceRequests.find(r=>r.id===id); if (!rr) return;
+  rr.resourceType = document.getElementById('rr-type').value;
+  rr.quantity = parseInt(document.getElementById('rr-qty').value)||1;
+  rr.notes = document.getElementById('rr-notes').value.trim();
+  rr.updatedAt = new Date().toISOString(); rr.synced = false;
+  db.pendingChanges++;
+  saveDB(db); closeModal(); renderPage(currentPage); updateBadgeCounts();
+  showToast('Resource request updated','success');
+}
+
+function escapeHtml(str) { if(!str)return''; return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function updateBadgeCounts() {
+  document.getElementById('incident-count').textContent = db.incidents.length;
+  document.getElementById('log-count').textContent = db.activityLogs.length;
+  document.getElementById('resource-count').textContent = db.resourceRequests.length;
+  document.getElementById('conflict-count').textContent = db.conflicts.filter(c=>!c.resolved).length;
+}
+function updateSyncBar() {
+  const dot = document.getElementById('sync-dot');
+  const status = document.getElementById('sync-status');
+  if (db.isOffline) { dot.className='dot offline'; status.textContent='✈️ Offline — '+db.pendingChanges+' pending'; }
+  else if (db.pendingChanges>0) { dot.className='dot yellow'; status.textContent='⚠️ '+db.pendingChanges+' change'+(db.pendingChanges>1?'s':'')+' pending'; }
+  else { dot.className='dot green'; status.textContent='✅ Connected — all synced'+(db.lastSync?' (last: '+new Date(db.lastSync).toLocaleTimeString()+')':''); }
+}
+function renderPage(page) {
+  const pages={dashboard:renderDashboard,incidents:renderIncidents,'activity-log':renderActivityLog,resources:renderResources,conflicts:renderConflicts,sync:renderSync};
+  (pages[page]||renderDashboard)(document.getElementById('main-content'));
+}
+
+document.getElementById('offline-checkbox').addEventListener('change',function(e){
+  db.isOffline=e.target.checked; saveDB(db); updateSyncBar();
+  showToast(db.isOffline?'Offline mode — all data stored locally':'Online — ready to sync',db.isOffline?'warning':'success');
+});
+document.querySelectorAll('.nav-item').forEach(el=>{el.addEventListener('click',()=>navigate(el.dataset.page));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();navigate(el.dataset.page)}})});
+document.getElementById('sync-now-btn').addEventListener('click',performSync);
+document.getElementById('export-json-btn').addEventListener('click',exportJSON);
+
+navigate('dashboard');
+</script>
+</body>
+</html>

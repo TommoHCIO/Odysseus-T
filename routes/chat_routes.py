@@ -432,6 +432,7 @@ def setup_chat_routes(
             # manage_skills (agent mode). In plain chat or incognito the
             # index would be useless / unwanted noise.
             agent_mode=(chat_mode == "agent"),
+            council_mode=council_mode,
         )
 
         _research_flags = {"do": do_research}  # Mutable container for generator scope
@@ -499,7 +500,8 @@ def setup_chat_routes(
         # persistent memory, past chats, or other identity-linked data.
         if incognito:
             disabled_tools.update({
-                "manage_memory",      # persistent memory store
+                "manage_knowledge",   # persistent Obsidian knowledge store
+                "manage_memory",      # deprecated compatibility alias
                 "search_chats",       # past chat history
                 "manage_skills",      # skill presets tied to user
             })
@@ -519,7 +521,7 @@ def setup_chat_routes(
             if not _privs.get("can_generate_images", True):
                 disabled_tools.add("generate_image")
             if not _privs.get("can_manage_memory", True):
-                disabled_tools.update({"manage_memory", "manage_skills"})
+                disabled_tools.update({"manage_knowledge", "manage_memory", "manage_skills"})
             if not _privs.get("can_use_research", True):
                 _research_flags["do"] = False
             if not _privs.get("can_use_agent", True):
@@ -543,7 +545,7 @@ def setup_chat_routes(
                 "builtin_browser", "ui_control",
                 "create_document", "edit_document", "update_document", "suggest_document",
                 "create_session", "list_sessions", "send_to_session", "manage_session",
-                "manage_memory", "manage_skills", "manage_tasks",
+                "manage_knowledge", "manage_memory", "manage_skills", "manage_tasks",
                 "manage_calendar", "manage_notes", "manage_research", "trigger_research",
                 "generate_image", "edit_image",
                 "send_email", "reply_to_email", "bulk_email", "delete_email", "archive_email",
@@ -584,7 +586,7 @@ def setup_chat_routes(
                 "create_document", "edit_document", "update_document",
                 "chat_with_model", "create_session", "list_sessions",
                 "send_to_session",
-                "pipeline", "manage_session", "manage_memory", "list_models",
+                "pipeline", "manage_session", "manage_knowledge", "manage_memory", "list_models",
                 "generate_image", "ui_control",
             }
             disabled_tools.update(_compare_strip)

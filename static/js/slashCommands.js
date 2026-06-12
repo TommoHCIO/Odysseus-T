@@ -1,4 +1,4 @@
-// static/js/slashCommands.js
+﻿// static/js/slashCommands.js
 // Slash command handlers and dispatcher, extracted from chat.js
 
 window.cancelActiveTour = function cancelActiveTour() {
@@ -19,9 +19,10 @@ import themeModule from './theme.js';
 import documentModule from './document.js';
 import settingsModule from './settings.js';
 import cookbookModule from './cookbook.js';
+import workspaceModule from './workspace.js';
 import { EVAL_PROMPTS } from './compare/index.js';
 
-// ── Module state ──────────────────────────────────────────────────────
+// â”€â”€ Module state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 let API_BASE = '';
 let setupMode = false;
@@ -236,7 +237,7 @@ function _setupProviderPrompt() {
 }
 
 // -----------------------------------------------------------------------
-// Slash commands — execute directly without AI
+// Slash commands â€” execute directly without AI
 // -----------------------------------------------------------------------
 
 /** Persist a message to the current session (fire-and-forget) */
@@ -511,7 +512,7 @@ function maskKey(key) {
  */
 function detectProvider(input) {
   const trimmed = input.trim();
-  // URL or bare IP/hostname — self-hosted endpoint
+  // URL or bare IP/hostname â€” self-hosted endpoint
   // Matches: http://..., https://..., llm-host:8080, localhost:8000, myserver:8080/v1
   if (/^https?:\/\//i.test(trimmed) || /^(\d{1,3}\.){1,3}\d{1,3}(:\d+)?/i.test(trimmed) || /^(localhost|[\w.-]+:\d{2,5})/i.test(trimmed)) {
     let url = trimmed.replace(/\/+$/, '');
@@ -622,7 +623,7 @@ async function connectDetectedSetupEndpoint(detected) {
 }
 
 /**
- * Handle setup mode input — user pasted an API key or URL.
+ * Handle setup mode input â€” user pasted an API key or URL.
  */
 async function handleSetupInput(input) {
   // Show masked user bubble (don't display raw key)
@@ -720,7 +721,7 @@ async function handleSetupWizard(mode, input) {
 
     // User may have re-typed "provider key" together (matching the
     // original /setup prompt's example). Honor the freshly-pasted
-    // key in that case — _setupProviderFromInput strips whitespace
+    // key in that case â€” _setupProviderFromInput strips whitespace
     // and would otherwise see "deepseeksk-..." and bail.
     const paired = _extractSetupProviderCredential(raw);
     if (paired?.provider) {
@@ -828,7 +829,7 @@ async function _applyToggle(name, val) {
   await typewriterReply(`${name}: ${newState ? 'on' : 'off'}`);
 }
 
-// ── Extracted handler functions ─────────────────────────────────────
+// â”€â”€ Extracted handler functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Each _cmd* receives (args, ctx) where args is the remaining tokens
 // and ctx = { sid, esc }.  They return true to signal "handled".
 
@@ -849,7 +850,7 @@ async function _cmdSessionNew(args, ctx) {
   let model = curSess ? curSess.model || '' : '';
   let endpointId = curSess ? curSess.endpoint_id || '' : '';
 
-  // No current session — try default chat, then any recent session with a model
+  // No current session â€” try default chat, then any recent session with a model
   if (!endpointUrl || !model) {
     try {
       const dcRes = await fetch(`${API_BASE}/api/default-chat`);
@@ -869,7 +870,7 @@ async function _cmdSessionNew(args, ctx) {
       endpointId = withModel[0].endpoint_id || '';
     }
   }
-  // Last resort — pull first model from /api/models
+  // Last resort â€” pull first model from /api/models
   if (!endpointUrl || !model) {
     try {
       const mRes = await fetch(`${API_BASE}/api/models`, { credentials: 'same-origin' });
@@ -885,7 +886,7 @@ async function _cmdSessionNew(args, ctx) {
     } catch (e) { /* ignore */ }
   }
   if (!endpointUrl || !model) {
-    slashReply('No model available — open the model picker and use the <code>+</code> button to add a model endpoint.');
+    slashReply('No model available â€” open the model picker and use the <code>+</code> button to add a model endpoint.');
     return true;
   }
 
@@ -902,7 +903,7 @@ async function _cmdSessionNew(args, ctx) {
     await sessionModule.selectSession(data.id);
     _hideWelcomeScreen();
     const shortModel = (model || '').split('/').pop();
-    await typewriterReply(`New session — ${shortModel || 'ready'}.`);
+    await typewriterReply(`New session â€” ${shortModel || 'ready'}.`);
   } else { const err = await res.json().catch(() => null); slashReply('Failed to create session' + (err?.detail ? ': ' + ctx.esc(err.detail) : '')); }
   return true;
 }
@@ -942,7 +943,7 @@ async function _cmdSessionDelete(args, ctx) {
     await typewriterReply(`Deleted ${label}`);
     await sessionModule.loadSessions();
   } else if (res.status === 403) {
-    slashReply('Cannot delete a starred session — unstar it first, or use <code>/s rm -rf</code>');
+    slashReply('Cannot delete a starred session â€” unstar it first, or use <code>/s rm -rf</code>');
   } else { const err = await res.json().catch(() => null); slashReply('Delete failed' + (err?.detail ? ': ' + ctx.esc(err.detail) : '')); }
   return true;
 }
@@ -1004,7 +1005,7 @@ async function _cmdSessionFork(args, ctx) {
 async function _cmdSessionTruncate(args, ctx) {
   if (!ctx.sid) { slashReply('No active session'); return true; }
   const keep = parseInt(args[0]);
-  if (!keep || keep < 1) { slashReply('Usage: /truncate N — deletes older messages, keeps the last N'); return true; }
+  if (!keep || keep < 1) { slashReply('Usage: /truncate N â€” deletes older messages, keeps the last N'); return true; }
   const res = await fetch(`${API_BASE}/api/session/${ctx.sid}/truncate`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
@@ -1097,11 +1098,11 @@ async function _cmdSessionExport(args, ctx) {
   const params = new URLSearchParams({ fmt });
   if (filename) params.set('filename', filename);
   window.open(`${API_BASE}/api/session/${ctx.sid}/export?${params}`, '_blank');
-  slashReply(`Exporting as .${fmt}${filename ? ' → ' + filename : ''}...`);
+  slashReply(`Exporting as .${fmt}${filename ? ' â†’ ' + filename : ''}...`);
   return true;
 }
 
-// ── Toggle handlers ──
+// â”€â”€ Toggle handlers â”€â”€
 
 async function _cmdToggleWeb(args, ctx) { const v = (args[0]||'').toLowerCase(); if (v === 'on' || v === 'off') _applyToggle('web', v); else _quickToggle('web'); return true; }
 async function _cmdToggleBash(args, ctx) { const v = (args[0]||'').toLowerCase(); if (v === 'on' || v === 'off') _applyToggle('bash', v); else _quickToggle('bash'); return true; }
@@ -1111,7 +1112,7 @@ async function _cmdToggleIncognito(args, ctx) {
   const sessions = sessionModule.getSessions();
   const sess = ctx.sid ? sessions.find(s => s.id === ctx.sid) : null;
   if (sess && sess.message_count > 0) {
-    slashReply(`Can't toggle Nobody mode mid-conversation — start a new session first`);
+    slashReply(`Can't toggle Nobody mode mid-conversation â€” start a new session first`);
     return true;
   }
   const v = (args[0]||'').toLowerCase();
@@ -1172,7 +1173,7 @@ async function _cmdToggleSidebar(args, ctx) {
   else if (arg === '2' || arg === 'mini') target = 'mini';
   else if (arg === '3' || arg === 'off' || arg === 'hide') target = 'off';
   else {
-    // Cycle: full → mini → off → full
+    // Cycle: full â†’ mini â†’ off â†’ full
     if (!sidebarHidden) target = 'mini';
     else if (!railHidden) target = 'off';
     else target = 'full';
@@ -1194,7 +1195,7 @@ async function _cmdToggleSidebar(args, ctx) {
   return true;
 }
 
-// ── Settings ──
+// â”€â”€ Settings â”€â”€
 
 async function _cmdOpen(args, ctx) {
   const target = (args[0] || '').trim().toLowerCase();
@@ -1220,17 +1221,28 @@ async function _cmdOpen(args, ctx) {
       else clickFirst('user-bar-settings', 'rail-settings');
       return true;
     }
+    if (target === 'skills') {
+      workspaceModule.openObsidian({ tab: 'skills' });
+      return true;
+    }
+    if (target === 'brain' || target === 'memory' || target === 'memories' || target === 'knowledge' || target === 'obsidian') {
+      workspaceModule.openObsidian();
+      return true;
+    }
     const targets = {
       gallery: ['tool-gallery-btn', 'rail-gallery'],
       notes: ['tool-notes-btn', 'rail-notes'],
+      obsidian: ['tool-notes-btn', 'rail-notes'],
+      knowledge: ['tool-notes-btn', 'rail-notes'],
       tasks: ['tool-tasks-btn', 'rail-tasks'],
       library: ['tool-library-btn', 'rail-archive'],
       documents: ['tool-library-btn', 'rail-archive'],
       docs: ['tool-library-btn', 'rail-archive'],
       archive: ['tool-library-btn', 'rail-archive'],
-      brain: ['tool-memory-btn', 'rail-memory'],
-      memory: ['tool-memory-btn', 'rail-memory'],
-      memories: ['tool-memory-btn', 'rail-memory'],
+      brain: ['tool-notes-btn', 'rail-notes'],
+      memory: ['tool-notes-btn', 'rail-notes'],
+      memories: ['tool-notes-btn', 'rail-notes'],
+      skills: ['tool-notes-btn', 'rail-notes'],
       research: ['tool-research-btn', 'rail-research'],
       compare: ['tool-compare-btn', 'rail-compare'],
       theme: ['tool-theme-btn', 'rail-theme'],
@@ -1288,11 +1300,19 @@ async function _cmdToolPanel(tool, args, ctx) {
     else document.getElementById('user-bar-settings')?.click();
     return true;
   }
+  if (target === 'brain' || target === 'memory' || target === 'memories' || target === 'knowledge' || target === 'obsidian') {
+    workspaceModule.openObsidian();
+    return true;
+  }
+  if (target === 'skills') {
+    workspaceModule.openObsidian({ tab: 'skills' });
+    return true;
+  }
   return _cmdOpen([target], ctx);
 }
 
 async function _cmdSettings(args, ctx) {
-  // Opens the Settings modal — primarily useful when the user has hidden the
+  // Opens the Settings modal â€” primarily useful when the user has hidden the
   // Settings cog in Appearance and needs a way back in.
   const tab = (args[0] || '').toLowerCase() || undefined;
   try {
@@ -1311,7 +1331,7 @@ async function _cmdSettings(args, ctx) {
   return true;
 }
 
-// ── Theme ──
+// â”€â”€ Theme â”€â”€
 
 async function _cmdTheme(args, ctx) {
   const tm = themeModule;
@@ -1321,7 +1341,7 @@ async function _cmdTheme(args, ctx) {
   const presetNames = tm && tm.THEMES ? Object.keys(tm.THEMES) : [];
   if (!sub || !tm || !tm.THEMES) {
     const customLabel = customNames.length ? `\nCustom: ${customNames.join(', ')}` : '';
-    slashReply(`Usage:\n  /theme &lt;name&gt; — Apply a preset or custom theme\n  /theme save &lt;name&gt; — Save current colors as a custom theme\n  /theme delete &lt;name&gt; — Delete a custom theme\nPresets: ${presetNames.join(', ')}${customLabel}`);
+    slashReply(`Usage:\n  /theme &lt;name&gt; â€” Apply a preset or custom theme\n  /theme save &lt;name&gt; â€” Save current colors as a custom theme\n  /theme delete &lt;name&gt; â€” Delete a custom theme\nPresets: ${presetNames.join(', ')}${customLabel}`);
     return true;
   }
   if (sub === 'save' && args[1]) {
@@ -1366,7 +1386,7 @@ async function _cmdTheme(args, ctx) {
   return true;
 }
 
-// ── Models ──
+// â”€â”€ Models â”€â”€
 
 async function _cmdModels(args, ctx) {
   slashReply('Fetching models...');
@@ -1381,14 +1401,14 @@ async function _cmdModels(args, ctx) {
   return true;
 }
 
-// ── Memory ──
+// â”€â”€ Memory â”€â”€
 
 async function _cmdMemoryList(args, ctx) {
   const res = await fetch(`${API_BASE}/api/memory`, { credentials: 'same-origin' });
   const data = await res.json();
   const mems = data.memory || [];
   if (!mems.length) { slashReply('No memories stored'); return true; }
-  const lines = mems.slice(0, 40).map(m => `[${m.category||'fact'}] ${m.id.slice(0,8)} — ${ctx.esc(m.text)}`);
+  const lines = mems.slice(0, 40).map(m => `[${m.category||'fact'}] ${m.id.slice(0,8)} â€” ${ctx.esc(m.text)}`);
   if (mems.length > 40) lines.push(`... and ${mems.length - 40} more`);
   slashReply(`<pre>${lines.join('\n')}</pre>`);
   return true;
@@ -1442,7 +1462,7 @@ async function _cmdMemoryDelete(args, ctx) {
   }
   const res = await fetch(`${API_BASE}/api/memory/${memId}`, { method: 'DELETE', credentials: 'same-origin' });
   if (res.ok) await typewriterReply(`Deleted: ${preview}${preview.length >= 50 ? '...' : ''}`);
-  else slashReply('Delete failed — check the ID');
+  else slashReply('Delete failed â€” check the ID');
   return true;
 }
 
@@ -1459,7 +1479,7 @@ async function _cmdMemorySearch(args, ctx) {
   return true;
 }
 
-// ── Note (quick Notes shortcut) ──
+// â”€â”€ Note (quick Notes shortcut) â”€â”€
 
 async function _cmdNote(args, ctx) {
   const text = args.join(' ');
@@ -1474,14 +1494,14 @@ async function _cmdNote(args, ctx) {
   return true;
 }
 
-// ── Todo / Remind / Event ───────────────────────────────────────────────
+// â”€â”€ Todo / Remind / Event â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Quick deterministic wrappers over /api/notes and /api/calendar/events.
-// They never involve the LLM — they parse the string locally and hit the
+// They never involve the LLM â€” they parse the string locally and hit the
 // API directly, so they work instantly regardless of chat/agent mode.
 
 function _pad2(n) { return String(n).padStart(2, '0'); }
 
-/** Local-time ISO-8601 string (no Z, no offset) — what the calendar API wants. */
+/** Local-time ISO-8601 string (no Z, no offset) â€” what the calendar API wants. */
 function _toLocalIso(d) {
   return `${d.getFullYear()}-${_pad2(d.getMonth()+1)}-${_pad2(d.getDate())}T${_pad2(d.getHours())}:${_pad2(d.getMinutes())}:00`;
 }
@@ -1534,7 +1554,7 @@ function _parseTimeSpec(input) {
     return { date: d, rest: m[5].trim() };
   }
 
-  // bare "HH:MM" / "9am" / "9pm" / "at HH:MM" — today, or tomorrow if past
+  // bare "HH:MM" / "9am" / "9pm" / "at HH:MM" â€” today, or tomorrow if past
   m = s.match(/^(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b\s*(?:to\s+)?(.*)$/i);
   if (m) {
     const d = new Date(now);
@@ -1563,13 +1583,13 @@ async function _cmdTodo(args, ctx) {
     const data = await res.json();
     const items = (data.notes || data || []).filter(n => !n.archived).slice(0, 30);
     if (!items.length) { slashReply('No todos'); return true; }
-    const lines = items.map(n => `• ${ctx.esc(n.title || n.content || '').slice(0, 80)}`);
+    const lines = items.map(n => `â€¢ ${ctx.esc(n.title || n.content || '').slice(0, 80)}`);
     slashReply(`<pre>${lines.join('\n')}</pre>`);
     return true;
   }
   // Treat everything after /todo (or after /todo add) as the todo text
   const rest = (sub === 'add' ? args.slice(1) : args).join(' ').trim();
-  if (!rest) { slashReply('Usage: /todo Your task here  ·  /todo list'); return true; }
+  if (!rest) { slashReply('Usage: /todo Your task here  Â·  /todo list'); return true; }
   const res = await fetch(`${API_BASE}/api/notes`, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
@@ -1582,7 +1602,7 @@ async function _cmdTodo(args, ctx) {
 
 async function _cmdEvent(args, ctx) {
   const raw = args.join(' ').trim();
-  if (!raw) { slashReply('Usage: /event tomorrow 14:00 Title  ·  /event in 30m Title  ·  /event 2026-04-20 15:00 Title'); return true; }
+  if (!raw) { slashReply('Usage: /event tomorrow 14:00 Title  Â·  /event in 30m Title  Â·  /event 2026-04-20 15:00 Title'); return true; }
   const parsed = _parseTimeSpec(raw);
   if (!parsed || !parsed.rest) { slashReply(`Could not parse time from: ${ctx.esc(raw)}`); return true; }
   const start = parsed.date;
@@ -1599,7 +1619,7 @@ async function _cmdEvent(args, ctx) {
     body: JSON.stringify(body),
   });
   if (res.ok) {
-    await typewriterReply(`Event: ${ctx.esc(parsed.rest)} — ${start.toLocaleString()}`);
+    await typewriterReply(`Event: ${ctx.esc(parsed.rest)} â€” ${start.toLocaleString()}`);
   } else {
     const err = await res.text().catch(() => '');
     slashReply(`Failed to create event${err ? `: ${ctx.esc(err.slice(0,200))}` : ''}`);
@@ -1607,7 +1627,7 @@ async function _cmdEvent(args, ctx) {
   return true;
 }
 
-// ── Shell (user command execution) ──
+// â”€â”€ Shell (user command execution) â”€â”€
 
 async function _cmdShell(args, ctx) {
   const cmd = args.join(' ');
@@ -1632,7 +1652,7 @@ async function _cmdShell(args, ctx) {
   return true;
 }
 
-// ── RAG ──
+// â”€â”€ RAG â”€â”€
 
 async function _cmdRagList(args, ctx) {
   const res = await fetch(`${API_BASE}/api/personal`, { credentials: 'same-origin' });
@@ -1701,7 +1721,7 @@ async function _cmdRagRemove(args, ctx) {
   return true;
 }
 
-// ── Web Search ──
+// â”€â”€ Web Search â”€â”€
 
 async function _cmdWebSearch(args, ctx) {
   const query = args.join(' ');
@@ -1715,7 +1735,7 @@ async function _cmdWebSearch(args, ctx) {
   return false; // fall through to normal chat submit
 }
 
-// ── Search ──
+// â”€â”€ Search â”€â”€
 
 async function _cmdSearch(args, ctx) {
   const query = args.join(' ');
@@ -1736,7 +1756,7 @@ async function _cmdSearch(args, ctx) {
   return true;
 }
 
-// ── Stats ──
+// â”€â”€ Stats â”€â”€
 
 async function _cmdStats(args, ctx) {
   const res = await fetch(`${API_BASE}/api/db/stats`, { credentials: 'same-origin' });
@@ -1751,7 +1771,7 @@ Uploads:   ${d.uploads || '?'}</pre>`);
   return true;
 }
 
-// ── Context compaction ──
+// â”€â”€ Context compaction â”€â”€
 
 async function _cmdCompact(args, ctx) {
   if (!ctx.sid) { slashReply('No active chat to compact'); return true; }
@@ -1785,7 +1805,7 @@ async function _cmdCompact(args, ctx) {
   return true;
 }
 
-// ── TTS ──
+// â”€â”€ TTS â”€â”€
 
 async function _cmdTts(args, ctx) {
   const text = args.join(' ');
@@ -1809,7 +1829,7 @@ async function _cmdTts(args, ctx) {
   return true;
 }
 
-// ── Demo ──
+// â”€â”€ Demo â”€â”€
 
 async function _cmdDemo(args, ctx) {
   const hasModels = await _hasConfiguredModels();
@@ -1818,9 +1838,9 @@ async function _cmdDemo(args, ctx) {
     return true;
   }
 
-  // ── Interactive guided tour ──
+  // â”€â”€ Interactive guided tour â”€â”€
   // Highlights elements with red outline, shows tooltip with pointer arrow.
-  // Navigation: ← back, skip tour, → next.
+  // Navigation: â† back, skip tour, â†’ next.
 
   // _onTyped / _draftPoll / _draftObserver get bound below; declare so they
   // can be cleaned up here.
@@ -1867,7 +1887,7 @@ async function _cmdDemo(args, ctx) {
   if (_msgEl) _msgEl.addEventListener('input', _onTyped);
   _draftObserver = new MutationObserver(() => _restoreIfCleared());
   if (_msgEl) _draftObserver.observe(_msgEl, { attributes: true, attributeFilter: ['value'] });
-  // Polling fallback — MutationObserver doesn't catch assignment to `.value`.
+  // Polling fallback â€” MutationObserver doesn't catch assignment to `.value`.
   _draftPoll = setInterval(_restoreIfCleared, 200);
 
   // Inject styles once
@@ -1984,7 +2004,7 @@ async function _cmdDemo(args, ctx) {
     return { cancel: () => { if (timer) { clearInterval(timer); el.innerHTML = html; } } };
   }
 
-  // Floating halo overlay — positioned over a target via getBoundingClientRect.
+  // Floating halo overlay â€” positioned over a target via getBoundingClientRect.
   // Returns a handle with .update() and .destroy(). We use this instead of a
   // CSS class on the target because per-target styles (outline, box-shadow)
   // and clipping ancestors otherwise eat the glow.
@@ -2027,7 +2047,7 @@ async function _cmdDemo(args, ctx) {
       const clickMode = mode === 'click';
       // Steps that advance on a domain event (message submitted) also get the
       // click-style "breathing" halo so they feel inviting. We intentionally
-      // exclude `#model-picker-btn` from this list — the model-picker step
+      // exclude `#model-picker-btn` from this list â€” the model-picker step
       // used to hide its arrows AND not click-advance, leaving the user with
       // a halo that did nothing if they didn't actually pick a model. It now
       // renders with normal arrows + `advanceOnClick`, see the steps array.
@@ -2074,7 +2094,7 @@ async function _cmdDemo(args, ctx) {
       };
       // Document-level capture so we hear the click before any inner handler
       // that might preventDefault / stopPropagation. We walk up from e.target
-      // via .closest(selector) — more robust than t.contains(e.target) when
+      // via .closest(selector) â€” more robust than t.contains(e.target) when
       // the click lands on a SVG/path child or a textNode wrapper. Guarded so
       // the multiple bound event types (click/pointerdown/mousedown) can't
       // double-resolve.
@@ -2087,17 +2107,17 @@ async function _cmdDemo(args, ctx) {
         });
         if (!matches) return;
         _advanced = true;
-        // resolve first — if anything in cleanup throws we still advance.
+        // resolve first â€” if anything in cleanup throws we still advance.
         resolve('clicked');
         try { cleanup(); } catch (err) { console.warn('tour cleanup:', err); }
       };
       // Advance on Enter so the user can hit "send" naturally to finish
-      // the tour. We deliberately do NOT advance on every input event —
+      // the tour. We deliberately do NOT advance on every input event â€”
       // doing so used to tear down the tooltip's click handler the moment
-      // the user typed a single character, leaving the `→` button visible
+      // the user typed a single character, leaving the `â†’` button visible
       // but unclickable, and the typed draft vulnerable to later clears.
       // We also stopPropagation+preventDefault on the Enter so it can't
-      // ALSO submit the chat form — otherwise the message would get sent
+      // ALSO submit the chat form â€” otherwise the message would get sent
       // (and the input cleared) the moment the user finishes the tour.
       const onMessageInput = (e) => {
         if (e.type !== 'keydown') return;
@@ -2118,8 +2138,8 @@ async function _cmdDemo(args, ctx) {
             ta.dispatchEvent(new Event('input', { bubbles: true }));
           }
         };
-        // Multiple ticks — synchronous, micro-task, and a couple frames
-        // out — to catch whatever is clearing it.
+        // Multiple ticks â€” synchronous, micro-task, and a couple frames
+        // out â€” to catch whatever is clearing it.
         _restore();
         Promise.resolve().then(_restore);
         requestAnimationFrame(_restore);
@@ -2176,7 +2196,7 @@ async function _cmdDemo(args, ctx) {
 
   const delay = ms => new Promise(r => setTimeout(r, ms));
 
-  // ── Welcome ──
+  // â”€â”€ Welcome â”€â”€
   await typewriterReply('Welcome to Odysseus! Lets begin the tour!');
   // Beat between the welcome line and the first hint so it doesn't snap in.
   await delay(900);
@@ -2250,10 +2270,10 @@ async function _cmdDemo(args, ctx) {
   return true;
 }
 
-// ── Compare tour ──
+// â”€â”€ Compare tour â”€â”€
 async function _cmdTourCompare(args, ctx) {
   // The slash dispatcher doesn't auto-clear the input, so explicitly
-  // wipe it — otherwise "/tour-compare" stays parked in the textarea
+  // wipe it â€” otherwise "/tour-compare" stays parked in the textarea
   // and visually competes with the tour walkthrough.
   const _msgEl = document.getElementById('message');
   if (_msgEl) {
@@ -2305,7 +2325,7 @@ async function _cmdTourCompare(args, ctx) {
 
   // Track halos so we can destroy them between steps. Halos sit on the
   // body (above modals) so the outline isn't clipped by modal-content's
-  // overflow:auto — same pattern as _cmdDemo's makeHalo.
+  // overflow:auto â€” same pattern as _cmdDemo's makeHalo.
   let _halos = [];
   function _makeHalo(target) {
     const halo = document.createElement('div');
@@ -2389,9 +2409,9 @@ async function _cmdTourCompare(args, ctx) {
       tooltip.innerHTML =
         '<div class="tour-text">' + text + '</div>' + hint +
         '<div class="tour-nav">' +
-          '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
+          '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">â†</button>' +
           '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-          '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
+          '<button class="tour-btn-arrow" data-act="next">' + (isLast ? 'âœ“' : 'â†’') + '</button>' +
         '</div>';
       requestAnimationFrame(() => {
         _positionTooltip(target);
@@ -2426,10 +2446,10 @@ async function _cmdTourCompare(args, ctx) {
     });
   }
 
-  // ── Phase 1: model-selector modal ──
+  // â”€â”€ Phase 1: model-selector modal â”€â”€
   // Scope every selector to #compare-model-overlay so we don't accidentally
   // match the Group Chat panel's .compare-parallel-toggle (line 1053 of
-  // index.html), which has the same class name and is hidden — its zero
+  // index.html), which has the same class name and is hidden â€” its zero
   // bounding-rect was putting the tooltip in the top-left corner.
   const phase1 = [
     { sel: '#compare-model-overlay .modal-body',
@@ -2440,7 +2460,7 @@ async function _cmdTourCompare(args, ctx) {
         if (modalBody) modalBody.scrollTop = 0;
       } },
     { sel: '#compare-model-overlay .compare-blind-toggle',
-      text: '<b>Blind Mode</b> hides model names so you don’t know which model gives what output.' },
+      text: '<b>Blind Mode</b> hides model names so you donâ€™t know which model gives what output.' },
     { sel: '#compare-model-overlay .compare-parallel-toggle',
       text: '<b>Parallel</b> runs side by side, toggle to <b>Sequential</b> as well.' },
     { sel: '#compare-model-overlay .compare-dice-toggle',
@@ -2457,10 +2477,10 @@ async function _cmdTourCompare(args, ctx) {
     if (res === 'back') { if (i > 0) i -= 2; continue; }
   }
 
-  // ── Wait for the modal to close and the compare panes to come up ──
+  // â”€â”€ Wait for the modal to close and the compare panes to come up â”€â”€
   _clearHalos();
   tooltip.innerHTML =
-    '<div class="tour-text">Click <b>Start</b> when ready — it will probe the models before beginning.</div>' +
+    '<div class="tour-text">Click <b>Start</b> when ready â€” it will probe the models before beginning.</div>' +
     '<div class="tour-nav">' +
       '<button class="tour-btn-skip" data-act="skip">skip</button>' +
     '</div>';
@@ -2503,17 +2523,17 @@ async function _cmdTourCompare(args, ctx) {
   // Small breather so any entry animation finishes before we measure.
   await new Promise(r => setTimeout(r, 300));
 
-  // ── Phase 2: compare panes (post-modal) ──
-  // Note: the Probe button (`#compare-check-btn`) is dynamic — only
-  // visible when there's at least one unverified model — so we don't
+  // â”€â”€ Phase 2: compare panes (post-modal) â”€â”€
+  // Note: the Probe button (`#compare-check-btn`) is dynamic â€” only
+  // visible when there's at least one unverified model â€” so we don't
   // tour it here; the user will discover it naturally when needed.
   const phase2 = [
     { sel: '#compare-add-btn',
-      text: 'Add more <b>Models</b> here, keep stacking, who’s stopping ya? (you can also remove btw).' },
+      text: 'Add more <b>Models</b> here, keep stacking, whoâ€™s stopping ya? (you can also remove btw).' },
     { sel: '#compare-shuffle-btn',
       text: 'After adding, <b>Shuffle</b> to randomize the order again.' },
     { sel: '#cmp-eval-btn',
-      text: 'When you’re ready to test, feel free to use curated <b>evaluation prompts</b>.',
+      text: 'When youâ€™re ready to test, feel free to use curated <b>evaluation prompts</b>.',
       advanceOnClick: true },
   ];
 
@@ -2529,11 +2549,11 @@ async function _cmdTourCompare(args, ctx) {
   }
 
   _clear();
-  await typewriterReply('That’s it, you’ll figure out the rest! Have fun!');
+  await typewriterReply('Thatâ€™s it, youâ€™ll figure out the rest! Have fun!');
   return true;
 }
 
-// ── Cookbook tour ──
+// â”€â”€ Cookbook tour â”€â”€
 async function _cmdTourCookbook(args, ctx) {
   // Clear the chat input so "/tour-cookbook" doesn't linger.
   const _msgEl = document.getElementById('message');
@@ -2675,9 +2695,9 @@ async function _cmdTourCookbook(args, ctx) {
       tooltip.innerHTML =
         '<div class="tour-text">' + text + '</div>' +
         '<div class="tour-nav">' +
-          '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
+          '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">â†</button>' +
           '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-          '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
+          '<button class="tour-btn-arrow" data-act="next">' + (isLast ? 'âœ“' : 'â†’') + '</button>' +
         '</div>';
       requestAnimationFrame(() => {
         _positionTooltip(target, placement);
@@ -2700,9 +2720,9 @@ async function _cmdTourCookbook(args, ctx) {
     if (tab) tab.click();
   }
 
-  // ── Steps ──
+  // â”€â”€ Steps â”€â”€
   // Tabs auto-switch via `before()` so the user sees the relevant section
-  // without having to navigate manually. Keep copy tight — no walls of text.
+  // without having to navigate manually. Keep copy tight â€” no walls of text.
   const steps = [
     { sel: '#cookbook-modal .modal-content',
       text: '<b>Welcome to Cookbook!</b> Download / Cook / Serve models here!',
@@ -2713,7 +2733,7 @@ async function _cmdTourCookbook(args, ctx) {
       text: 'Paste a HuggingFace URL or <code>org/model-name</code> to download. Quantizations like <code>org/model:Q4_K_M</code> work too.',
       before: () => _clickTab('Search') },
     { sel: '#cookbook-modal .admin-card:has(> #hwfit-list)',
-      text: '<b>Scan / Download</b> — reads your hardware and lists every model that\'ll run on it.',
+      text: '<b>Scan / Download</b> â€” reads your hardware and lists every model that\'ll run on it.',
       before: () => _clickTab('Search') },
     { sel: '#hwfit-hw-manual-btn',
       text: 'Your detected hardware appears here. You can also manually edit it to see what would fit on other setups.',
@@ -2722,10 +2742,10 @@ async function _cmdTourCookbook(args, ctx) {
       text: 'Check <b>latest trending models</b> here.',
       before: () => _clickTab('Search') },
     { sel: '#cookbook-modal .cookbook-tab[data-backend="Serve"]',
-      text: '<b>Serve</b> — fire up downloaded models with vLLM, Ollama, llama.cpp, and diffusion models too.',
+      text: '<b>Serve</b> â€” fire up downloaded models with vLLM, Ollama, llama.cpp, and diffusion models too.',
       before: () => _clickTab('Serve') },
     { sel: '#cookbook-modal .cookbook-tab[data-backend="Dependencies"]',
-      text: '<b>Dependencies</b> — install missing Python packages or check GPU drivers.',
+      text: '<b>Dependencies</b> â€” install missing Python packages or check GPU drivers.',
       before: () => _clickTab('Dependencies') },
   ];
 
@@ -2735,7 +2755,7 @@ async function _cmdTourCookbook(args, ctx) {
   if (runTab) {
     steps.push({
       sel: '#cookbook-modal .cookbook-tab[data-backend="Running"]',
-      text: '<b>Running</b> — live status, tail logs, downloads, kill.',
+      text: '<b>Running</b> â€” live status, tail logs, downloads, kill.',
       before: () => _clickTab('Running'),
     });
   }
@@ -2755,11 +2775,11 @@ async function _cmdTourCookbook(args, ctx) {
   // Leave Cookbook on the Download tab so the user can start downloading immediately.
   _clickTab('Search');
   _clear();
-  await typewriterReply('That’s Cookbook. Pick a model that catches your eye and let it cook.');
+  await typewriterReply('Thatâ€™s Cookbook. Pick a model that catches your eye and let it cook.');
   return true;
 }
 
-// ── Theme tour ──
+// â”€â”€ Theme tour â”€â”€
 async function _cmdTourTheme(args, ctx) {
   // Clear the chat input so "/tour-theme" doesn't linger.
   const _msgEl = document.getElementById('message');
@@ -2885,7 +2905,7 @@ async function _cmdTourTheme(args, ctx) {
     tooltip.style.visibility = '';
   }
 
-  // Interactive step — show tooltip + halo over one or more targets and
+  // Interactive step â€” show tooltip + halo over one or more targets and
   // resolve 'next' when the user actually clicks one of the highlighted
   // elements. Skip button still exits. `extraSel` (optional) adds a
   // second highlight target whose click also advances the step.
@@ -2912,9 +2932,9 @@ async function _cmdTourTheme(args, ctx) {
         tooltip.innerHTML =
           '<div class="tour-text">' + text + '</div>' +
           '<div class="tour-nav">' +
-            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
+            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">â†</button>' +
             '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
+            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? 'âœ“' : 'â†’') + '</button>' +
           '</div>';
         requestAnimationFrame(() => {
           _positionTooltip(target, placement);
@@ -2955,7 +2975,7 @@ async function _cmdTourTheme(args, ctx) {
     if (tab) tab.click();
   }
 
-  // ── Steps ──
+  // â”€â”€ Steps â”€â”€
   // Interactive flow: the user actually clicks each highlighted element
   // to progress. Skip button exits at any point; arrow buttons still
   // work as a fallback (read past without touching anything).
@@ -2965,19 +2985,19 @@ async function _cmdTourTheme(args, ctx) {
       placement: 'center-above',
       before: () => _clickTab('theme-tab-browse') },
     { sel: '#themeGrid',
-      text: 'Try a <b>default theme</b> — or build your own with <b>Customize</b>.',
+      text: 'Try a <b>default theme</b> â€” or build your own with <b>Customize</b>.',
       extraSel: '#theme-tabs .admin-tab[data-tab="theme-tab-customize"]',
       interactive: true },
     { sel: '#theme-harmony-card',
-      text: 'Build a quick theme with <b>color harmony</b> — pick one accent color, hit Generate, and a matching palette falls out.',
+      text: 'Build a quick theme with <b>color harmony</b> â€” pick one accent color, hit Generate, and a matching palette falls out.',
       before: () => _clickTab('theme-tab-customize'),
       interactive: true },
     { sel: '#themeCustom',
-      text: 'Want finer control? <b>Edit each color individually</b> here — the page updates live.',
+      text: 'Want finer control? <b>Edit each color individually</b> here â€” the page updates live.',
       before: () => _clickTab('theme-tab-customize'),
       interactive: true },
     { sel: '#theme-bg-pattern-select',
-      text: 'Add a <b>background animation</b> — rain, petals, constellations, sparkles, embers…',
+      text: 'Add a <b>background animation</b> â€” rain, petals, constellations, sparkles, embersâ€¦',
       before: () => _clickTab('theme-tab-customize'),
       interactive: true },
     { sel: '#theme-opacity-wrap',
@@ -3001,11 +3021,11 @@ async function _cmdTourTheme(args, ctx) {
   }
 
   _clear();
-  await typewriterReply('That’s Theme. Make it yours.');
+  await typewriterReply('Thatâ€™s Theme. Make it yours.');
   return true;
 }
 
-// ── Settings tour ──
+// â”€â”€ Settings tour â”€â”€
 async function _cmdTourSettings(args, ctx) {
   // Clear the chat input so "/tour-settings" doesn't linger.
   const _msgEl = document.getElementById('message');
@@ -3156,9 +3176,9 @@ async function _cmdTourSettings(args, ctx) {
         tooltip.innerHTML =
           '<div class="tour-text">' + text + '</div>' +
           '<div class="tour-nav">' +
-            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
+            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">â†</button>' +
             '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
+            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? 'âœ“' : 'â†’') + '</button>' +
           '</div>';
         requestAnimationFrame(() => {
           _positionTooltip(target, placement);
@@ -3187,34 +3207,34 @@ async function _cmdTourSettings(args, ctx) {
       text: '<b>Welcome to Settings.</b> HOW EXCITING.',
       placement: 'center-above' },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="services"]',
-      text: '<b>Add Models</b> — add a local endpoint first, like Ollama, vLLM, or llama.cpp. Cloud providers are optional.',
+      text: '<b>Add Models</b> â€” add a local endpoint first, like Ollama, vLLM, or llama.cpp. Cloud providers are optional.',
       before: () => _clickNav('services') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="ai"]',
-      text: '<b>AI Defaults</b> — three roles share the work. Let\'s walk through them.',
+      text: '<b>AI Defaults</b> â€” three roles share the work. Let\'s walk through them.',
       before: () => _clickNav('ai') },
     { sel: '#settings-modal .admin-card:has(#set-defaultModelSelect)',
-      text: '<b>Default Chat Model</b> — your main model. The one Odysseus reaches for whenever you start a new chat.',
+      text: '<b>Default Chat Model</b> â€” your main model. The one Odysseus reaches for whenever you start a new chat.',
       before: () => _clickNav('ai') },
     { sel: '#settings-modal .admin-card:has(#set-utilityModelSelect)',
-      text: '<b>Utility Model</b> — your hard-working sidekick. Runs background tasks (compaction, cleanup, auto-naming, summarization) so your chat model doesn\'t burn cycles on chores. <b>Recommend a small local model</b> here — it\'s free and always on.',
+      text: '<b>Utility Model</b> â€” your hard-working sidekick. Runs background tasks (compaction, cleanup, auto-naming, summarization) so your chat model doesn\'t burn cycles on chores. <b>Recommend a small local model</b> here â€” it\'s free and always on.',
       before: () => _clickNav('ai') },
     { sel: '#settings-modal .admin-card:has(#set-vlModelSelect)',
-      text: '<b>Vision</b> — powers any image-recognition feature: drop a photo in chat, ask what\'s in it, OCR, etc.',
+      text: '<b>Vision</b> â€” powers any image-recognition feature: drop a photo in chat, ask what\'s in it, OCR, etc.',
       before: () => _clickNav('ai') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="integrations"]',
-      text: '<b>Integrations</b> — wire up email, calendar, contacts here (per-account).',
+      text: '<b>Integrations</b> â€” wire up email, calendar, contacts here (per-account).',
       before: () => _clickNav('integrations') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="search"]',
-      text: '<b>Search</b> — plug in your own search provider, or use the bundled <b>SearXNG</b> out of the box.',
+      text: '<b>Search</b> â€” plug in your own search provider, or use the bundled <b>SearXNG</b> out of the box.',
       before: () => _clickNav('search') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="appearance"]',
-      text: '<b>Appearance</b> — too many tools you don\'t need? Adjust them here! Toggle sidebar buttons, tool icons, and section visibility.',
+      text: '<b>Appearance</b> â€” too many tools you don\'t need? Adjust them here! Toggle sidebar buttons, tool icons, and section visibility.',
       before: () => _clickNav('appearance') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="email"]',
-      text: '<b>Email</b> — sync schedule, drafts, snooze defaults — everything email-flow related.',
+      text: '<b>Email</b> â€” sync schedule, drafts, snooze defaults â€” everything email-flow related.',
       before: () => _clickNav('email') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="reminders"]',
-      text: '<b>Reminders</b> — quiet hours and how Odysseus nudges you about calendar + urgent email.',
+      text: '<b>Reminders</b> â€” quiet hours and how Odysseus nudges you about calendar + urgent email.',
       before: () => _clickNav('reminders') },
   ];
 
@@ -3237,7 +3257,7 @@ async function _cmdTourSettings(args, ctx) {
   return true;
 }
 
-// ── Gallery tour ──
+// â”€â”€ Gallery tour â”€â”€
 async function _cmdTourGallery(args, ctx) {
   // Clear the chat input so "/tour-gallery" doesn't linger.
   const _msgEl = document.getElementById('message');
@@ -3388,9 +3408,9 @@ async function _cmdTourGallery(args, ctx) {
         tooltip.innerHTML =
           '<div class="tour-text">' + text + '</div>' +
           '<div class="tour-nav">' +
-            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
+            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">â†</button>' +
             '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
+            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? 'âœ“' : 'â†’') + '</button>' +
           '</div>';
         requestAnimationFrame(() => {
           _positionTooltip(target, placement);
@@ -3420,16 +3440,16 @@ async function _cmdTourGallery(args, ctx) {
       placement: 'center-above',
       before: () => _clickTab('images') },
     { sel: '#gallery-modal .gallery-tab[data-tab="images"]',
-      text: '<b>Photos</b> — every image you\'ve uploaded, in one grid.',
+      text: '<b>Photos</b> â€” every image you\'ve uploaded, in one grid.',
       before: () => _clickTab('images') },
     { sel: '#gallery-upload-tile',
       text: 'Drop or click this tile to <b>upload</b> photos and videos.',
       before: () => _clickTab('images') },
     { sel: '#gallery-modal .gallery-tab[data-tab="albums"]',
-      text: '<b>Albums</b> — group images into collections.',
+      text: '<b>Albums</b> â€” group images into collections.',
       before: () => _clickTab('albums') },
     { sel: '#gallery-modal .gallery-tab[data-tab="editor"]',
-      text: '<b>Editor</b> — honestly still WIP, so explore as you want.',
+      text: '<b>Editor</b> â€” honestly still WIP, so explore as you want.',
       before: () => _clickTab('editor') },
   ];
 
@@ -3448,11 +3468,11 @@ async function _cmdTourGallery(args, ctx) {
   // Land on Photos so the user has a familiar starting point.
   _clickTab('images');
   _clear();
-  await typewriterReply('That\'s Gallery. Editor is rough — feedback welcome.');
+  await typewriterReply('That\'s Gallery. Editor is rough â€” feedback welcome.');
   return true;
 }
 
-// ── Notes tour ──
+// â”€â”€ Notes tour â”€â”€
 async function _cmdTourNotes(args, ctx) {
   // Clear the chat input so "/tour-notes" doesn't linger.
   const _msgEl = document.getElementById('message');
@@ -3601,9 +3621,9 @@ async function _cmdTourNotes(args, ctx) {
         tooltip.innerHTML =
           '<div class="tour-text">' + text + '</div>' +
           '<div class="tour-nav">' +
-            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
+            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">â†</button>' +
             '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
+            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? 'âœ“' : 'â†’') + '</button>' +
           '</div>';
         requestAnimationFrame(() => {
           _positionTooltip(target, placement);
@@ -3629,9 +3649,9 @@ async function _cmdTourNotes(args, ctx) {
     { sel: '#notes-pane .notes-pane-body',
       text: 'Your notes show up here. You can also <b>ask Odysseus in chat</b> to take a note for you.' },
     { sel: '#notes-search',
-      text: '<b>Search</b> across every note — title, body, tags, the works.' },
+      text: '<b>Search</b> across every note â€” title, body, tags, the works.' },
     { sel: '#notes-view-toggle',
-      text: 'Switch between <b>grid</b> and <b>list</b> views — pick whichever fits your brain.' },
+      text: 'Switch between <b>grid</b> and <b>list</b> views â€” pick whichever fits your brain.' },
     { sel: '#notes-archive-toggle',
       text: '<b>Archive</b> stashes old notes you don\'t want cluttering the active view but still want to keep.' },
     { sel: '#notes-select-btn',
@@ -3655,8 +3675,8 @@ async function _cmdTourNotes(args, ctx) {
   return true;
 }
 
-// ── Tour: Brain ──
-async function _cmdTourBrain(args, ctx) {
+// Tour: Obsidian Knowledge
+async function _cmdTourObsidian(args, ctx) {
   const _msgEl = document.getElementById('message');
   if (_msgEl) {
     _msgEl.value = '';
@@ -3686,18 +3706,17 @@ async function _cmdTourBrain(args, ctx) {
     document.head.appendChild(s);
   }
 
-  let modal = document.getElementById('memory-modal');
+  let modal = document.getElementById('obsidian-window');
   if (!modal || modal.classList.contains('hidden')) {
-    const opener = document.getElementById('tool-memory-btn') || document.getElementById('rail-memory');
-    if (opener) opener.click();
+    if (workspaceModule && workspaceModule.openObsidian) workspaceModule.openObsidian();
     for (let i = 0; i < 25; i++) {
       await new Promise(r => setTimeout(r, 80));
-      modal = document.getElementById('memory-modal');
+      modal = document.getElementById('obsidian-window');
       if (modal && !modal.classList.contains('hidden')) break;
     }
   }
   if (!modal || modal.classList.contains('hidden')) {
-    slashReply('Could not open Brain. Try clicking the Brain tool first.');
+    slashReply('Could not open Obsidian Knowledge. Try opening Obsidian from the rail.');
     return true;
   }
 
@@ -3801,9 +3820,9 @@ async function _cmdTourBrain(args, ctx) {
         tooltip.innerHTML =
           '<div class="tour-text">' + text + '</div>' +
           '<div class="tour-nav">' +
-            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
+            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">â†</button>' +
             '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
+            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? 'âœ“' : 'â†’') + '</button>' +
           '</div>';
         requestAnimationFrame(() => {
           _positionTooltip(target, placement);
@@ -3822,21 +3841,21 @@ async function _cmdTourBrain(args, ctx) {
     });
   }
 
-  const _tab = (name) => document.querySelector(`.memory-tab[data-memory-tab="${name}"]`)?.click();
+  const _tab = (name) => document.querySelector(`.obsidian-tab[data-obsidian-tab="${name}"]`)?.click();
   const steps = [
-    { sel: '#memory-modal .memory-modal-content',
-      text: '<b>Brain</b> is where your memories are. You can edit them, or add new ones under <b>Add</b>. Wow.',
-      before: () => _tab('browse'),
+    { sel: '#obsidian-window .obsidian-cockpit',
+      text: '<b>Obsidian Knowledge</b> is the durable recall surface: notes, curation, graph context, and skills.',
+      before: () => _tab('vault'),
       placement: 'center-above' },
-    { sel: '#memory-tidy-btn',
-      text: '<b>Tidy</b> runs your model to clear out irrelevant memories and duplicates. It also triggers automatically from Tasks.',
-      before: () => _tab('browse') },
-    { sel: '.memory-tab-panel[data-memory-panel="skills"]',
-      text: '<b>Skills</b> are basically your AI’s memory for improving its abilities.',
+    { sel: '.obsidian-search',
+      text: '<b>Search</b> recalls curated knowledge first, then supporting vault entries.',
+      before: () => _tab('vault') },
+    { sel: '.obsidian-tab[data-obsidian-tab="skills"]',
+      text: '<b>Skills</b> are stored as SKILL.md runbooks inside Obsidian.',
       before: () => _tab('skills') },
-    { sel: '.memory-tab-panel[data-memory-panel="settings"]',
-      text: '<b>Settings</b> lets you turn off auto extraction and set how strong skills need to be before they are tagged.',
-      before: () => _tab('settings') },
+    { sel: '.obsidian-tab[data-obsidian-tab="graph"]',
+      text: '<b>Graph</b> shows how notes, links, artifacts, and skills connect.',
+      before: () => _tab('graph') },
   ];
 
   for (let i = 0; i < steps.length; i++) {
@@ -3852,11 +3871,11 @@ async function _cmdTourBrain(args, ctx) {
   }
 
   _clear();
-  await typewriterReply('That’s Brain — memories, skills, tidy, and settings in one place.');
+  await typewriterReply('That is Obsidian Knowledge: recall, curation, graph context, and skills in one place.');
   return true;
 }
 
-// ── Task tours ──
+// â”€â”€ Task tours â”€â”€
 async function _openTasksForTour() {
   let modal = document.getElementById('tasks-modal');
   if (!modal) {
@@ -3990,9 +4009,9 @@ async function _runTaskTour(steps, doneText, opts) {
         tooltip.innerHTML =
           '<div class="tour-text">' + step.text + '</div>' +
           '<div class="tour-nav">' +
-            '<button class="tour-btn-arrow' + (i === 0 ? ' disabled' : '') + '" data-act="back">←</button>' +
+            '<button class="tour-btn-arrow' + (i === 0 ? ' disabled' : '') + '" data-act="back">â†</button>' +
             '<button class="tour-btn-skip" data-act="skip">' + (i === steps.length - 1 ? 'done' : 'skip tour') + '</button>' +
-            '<button class="tour-btn-arrow" data-act="next">' + (i === steps.length - 1 ? '✓' : '→') + '</button>' +
+            '<button class="tour-btn-arrow" data-act="next">' + (i === steps.length - 1 ? 'âœ“' : 'â†’') + '</button>' +
           '</div>';
         requestAnimationFrame(() => {
           positionTooltip(target);
@@ -4003,7 +4022,7 @@ async function _runTaskTour(steps, doneText, opts) {
           if (!hit) return;
           tooltip.removeEventListener('click', onClick);
           // Always fire step.after when leaving the step, regardless of
-          // direction — it's the symmetric pair to `before` (undo the
+          // direction â€” it's the symmetric pair to `before` (undo the
           // temporary state change), and a user clicking "back" on the
           // chat-input step still needs the tasks modal restored.
           if (step.after) { try { step.after(); } catch (_) {} }
@@ -4019,7 +4038,7 @@ async function _runTaskTour(steps, doneText, opts) {
     if (res === 'skip') { clear(); return 'skipped'; }
     if (res === 'back' && i > 0) i -= 2;
   }
-  // Optional "Continue to part X?" prompt — show a centered tooltip
+  // Optional "Continue to part X?" prompt â€” show a centered tooltip
   // with two buttons before tearing down the tour overlay.
   if (opts.continueLabel) {
     clearHalos();
@@ -4063,11 +4082,11 @@ async function _cmdTourTask1(args, ctx) {
     { sel: '#tasks-modal .modal-content',
       text: '<b>Welcome to Tasks.</b> Manage all your AI background work here.' },
     { sel: '#tasks-pause-all-btn',
-      text: 'Tasks are <b>paused by default</b> — resume whichever ones make sense for you. (Or pause anything that\'s running.)' },
+      text: 'Tasks are <b>paused by default</b> â€” resume whichever ones make sense for you. (Or pause anything that\'s running.)' },
     { sel: '#tasks-modal .modal-body',
       text: 'When enabled, Tasks use the <b>utility model configured in Settings</b> for cleanup and organization jobs.' },
   ], 'Use Tasks when you want Odysseus to handle background housekeeping.', {
-    continueLabel: 'continue →',
+    continueLabel: 'continue â†’',
     continueText: '<b>Part 1 done.</b> Want to keep going into <b>adding & managing tasks</b>?',
   });
   if (result === 'continue') return _cmdTourTask2(args, ctx);
@@ -4080,7 +4099,7 @@ async function _cmdTourTask2(args, ctx) {
       text: '<b>Add</b> creates scheduled prompts, research jobs, actions, event triggers, or webhooks.',
       before: () => document.querySelector('#tasks-modal .tasks-tab[data-tab="new"]')?.click() },
     { sel: '#task-ai-input',
-      text: 'You can just describe the task in plain chat language. Example: “weekday mornings summarize unread email”.' },
+      text: 'You can just describe the task in plain chat language. Example: â€œweekday mornings summarize unread emailâ€.' },
     { sel: '#tasks-modal .memory-item[data-idx="0"]',
       text: 'Or pick a template and fill out the form manually.' },
     { sel: '#task-form-save, #tasks-modal .tasks-tab[data-tab="tasks"]',
@@ -4090,13 +4109,13 @@ async function _cmdTourTask2(args, ctx) {
     // re-show it when the user moves past this step so the tour lands
     // back where it started.
     { sel: '#message',
-      text: 'You can also <b>just ask in chat</b> — say "every weekday at 9am check for urgent emails" and Odysseus will create the task for you.',
+      text: 'You can also <b>just ask in chat</b> â€” say "every weekday at 9am check for urgent emails" and Odysseus will create the task for you.',
       before: () => document.getElementById('tasks-modal')?.classList.add('hidden'),
       after:  () => document.getElementById('tasks-modal')?.classList.remove('hidden') },
   ], 'That\'s Tasks. Have it run the background bits so you can stay in chat.');
 }
 
-// ── Tour: Deep Research ──
+// â”€â”€ Tour: Deep Research â”€â”€
 
 async function _cmdTourResearch(args, ctx) {
   // Clear the chat input so "/tour-research" doesn't linger.
@@ -4238,9 +4257,9 @@ async function _cmdTourResearch(args, ctx) {
       tooltip.innerHTML =
         '<div class="tour-text">' + text + '</div>' +
         '<div class="tour-nav">' +
-          '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
+          '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">â†</button>' +
           '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-          '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
+          '<button class="tour-btn-arrow" data-act="next">' + (isLast ? 'âœ“' : 'â†’') + '</button>' +
         '</div>';
       requestAnimationFrame(() => {
         _positionTooltip(target, placement);
@@ -4269,12 +4288,12 @@ async function _cmdTourResearch(args, ctx) {
       text: '<b>Welcome to Deep Research!</b> An LLM-in-the-loop agent that plans the search, queries the web, extracts findings, and writes you a full report.',
       placement: 'center-above' },
     { sel: '#research-query',
-      text: 'Type what you want to researched here. Be specific — <i>"compare X vs Y for Z"</i> beats <i>"tell me about X"</i>.' },
+      text: 'Type what you want to researched here. Be specific â€” <i>"compare X vs Y for Z"</i> beats <i>"tell me about X"</i>.' },
     { sel: '#research-settings-body',
       text: '<b>Rounds</b> is how long the model will keep searching for. You can set to <b>Auto</b>, or go deeper/quicker depending on preference.',
       before: _ensureSettingsOpen },
     { sel: '#research-pane',
-      text: 'When a report finishes you can <b>discuss the results with the LLM</b> in chat, or open the full <b>visual HTML report</b> — sources, images, the works.',
+      text: 'When a report finishes you can <b>discuss the results with the LLM</b> in chat, or open the full <b>visual HTML report</b> â€” sources, images, the works.',
       placement: 'center-above' },
   ];
 
@@ -4292,7 +4311,7 @@ async function _cmdTourResearch(args, ctx) {
 
   _clear();
   {
-    const _body = await typewriterReply('That’s Deep Research — hit Start or queue up many. You can also view past research in your ');
+    const _body = await typewriterReply('Thatâ€™s Deep Research â€” hit Start or queue up many. You can also view past research in your ');
     const libLink = document.createElement('button');
     libLink.type = 'button';
     libLink.textContent = 'Library';
@@ -4310,7 +4329,7 @@ async function _cmdTourResearch(args, ctx) {
   return true;
 }
 
-// ── Tour: Library + Document editor ──
+// â”€â”€ Tour: Library + Document editor â”€â”€
 
 async function _cmdTourLibrary(args, ctx) {
   // Clear the chat input so "/tour-library" doesn't linger.
@@ -4454,9 +4473,9 @@ async function _cmdTourLibrary(args, ctx) {
       tooltip.innerHTML =
         '<div class="tour-text">' + text + '</div>' +
         '<div class="tour-nav">' +
-          '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
+          '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">â†</button>' +
           '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-          '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
+          '<button class="tour-btn-arrow" data-act="next">' + (isLast ? 'âœ“' : 'â†’') + '</button>' +
         '</div>';
       requestAnimationFrame(() => {
         _positionTooltip(target, placement);
@@ -4477,7 +4496,7 @@ async function _cmdTourLibrary(args, ctx) {
       };
       tooltip.addEventListener('click', onClick);
       // Interactive steps advance when the user clicks the highlighted
-      // element — letting the original click through so the real action
+      // element â€” letting the original click through so the real action
       // (open the Create modal, in the Library case) actually fires.
       if (interactive) {
         _onTarget = () => { cleanup(); resolve('next'); };
@@ -4486,10 +4505,10 @@ async function _cmdTourLibrary(args, ctx) {
     });
   }
 
-  // ── Phase 1: Library overview ──
+  // â”€â”€ Phase 1: Library overview â”€â”€
   const libSteps = [
     { sel: '#doclib-modal .doclib-modal-content',
-      text: '<b>Welcome to Library!</b> Your hub for <b>Chats</b>, <b>Documents</b>, <b>Research</b>, and <b>Archive</b> — search, sort and tidy!',
+      text: '<b>Welcome to Library!</b> Your hub for <b>Chats</b>, <b>Documents</b>, <b>Research</b>, and <b>Archive</b> â€” search, sort and tidy!',
       placement: 'center-above',
       before: () => {
         // Force the modal box to fill its intended frame so the halo wraps the
@@ -4501,10 +4520,10 @@ async function _cmdTourLibrary(args, ctx) {
         }
       } },
     { sel: '#doclib-create-btn',
-      text: '<b>Create</b> a fresh blank document — click it to try it out! (Or hit <b>Import</b> next to it to bring in a file from disk.)',
+      text: '<b>Create</b> a fresh blank document â€” click it to try it out! (Or hit <b>Import</b> next to it to bring in a file from disk.)',
       interactive: true },
     { sel: '#doclib-grid .doclib-card',
-      text: 'Each card is a saved document. It’s linked to the chat you created it in — so either <b>clone</b> it for a new chat, or <b>open</b> it in its original.',
+      text: 'Each card is a saved document. Itâ€™s linked to the chat you created it in â€” so either <b>clone</b> it for a new chat, or <b>open</b> it in its original.',
       optional: true },
   ];
 
@@ -4522,7 +4541,7 @@ async function _cmdTourLibrary(args, ctx) {
     if (res === 'back') { if (i > 0) i -= 2; continue; }
   }
 
-  // ── Phase 2: open a document & walk the editor ──
+  // â”€â”€ Phase 2: open a document & walk the editor â”€â”€
   // Try to load the user's most recent document. If none exist, end with a hint.
   let firstDocId = null;
   try {
@@ -4535,7 +4554,7 @@ async function _cmdTourLibrary(args, ctx) {
 
   if (!firstDocId || !window.documentModule || !window.documentModule.loadDocument) {
     _clear();
-    await typewriterReply('All yours — create or import a doc, then run /tour-library again to see the editor.');
+    await typewriterReply('All yours â€” create or import a doc, then run /tour-library again to see the editor.');
     return true;
   }
 
@@ -4549,7 +4568,7 @@ async function _cmdTourLibrary(args, ctx) {
   }
   if (!document.getElementById('doc-editor-pane')) {
     _clear();
-    await typewriterReply('All yours — open a doc and run /tour-library again for the editor walkthrough.');
+    await typewriterReply('All yours â€” open a doc and run /tour-library again for the editor walkthrough.');
     return true;
   }
 
@@ -4563,9 +4582,9 @@ async function _cmdTourLibrary(args, ctx) {
     { sel: '#doc-tab-bar',
       text: 'Multiple docs as <b>tabs</b>. Drag to reorder, click <b>+</b> for a new one, click the dots for rename / clone / export / delete.' },
     { sel: '#doc-language-select',
-      text: 'Switch the <b>document type</b> — markdown shows a preview, email shows To/Subject/Send, PDF lets you fill blanks with AI.' },
+      text: 'Switch the <b>document type</b> â€” markdown shows a preview, email shows To/Subject/Send, PDF lets you fill blanks with AI.' },
     { sel: '#doc-editor-textarea',
-      text: 'Ask the LLM to <i>draft</i>, <i>rewrite</i>, <i>summarize</i>, <i>feedback</i> — edits stream live.' },
+      text: 'Ask the LLM to <i>draft</i>, <i>rewrite</i>, <i>summarize</i>, <i>feedback</i> â€” edits stream live.' },
   ];
 
   for (let i = 0; i < editorSteps.length; i++) {
@@ -4581,15 +4600,15 @@ async function _cmdTourLibrary(args, ctx) {
   }
 
   _clear();
-  await typewriterReply('All yours — write away!');
+  await typewriterReply('All yours â€” write away!');
   return true;
 }
 
-// ── Prompt ──
+// â”€â”€ Prompt â”€â”€
 
 async function _cmdPrompt(args, ctx) {
   // Pull chat-appropriate prompts from compare templates. Skip the
-  // `image` category (raw image-gen prompts — wrong for a text chat)
+  // `image` category (raw image-gen prompts â€” wrong for a text chat)
   // and `search` (bare keyword queries, not full prompts).
   const CHAT_CATS = ['chat', 'code', 'agent', 'html'];
   const all = [];
@@ -4616,7 +4635,7 @@ async function _cmdPrompt(args, ctx) {
   return true;
 }
 
-// ── Setup ──
+// â”€â”€ Setup â”€â”€
 
 function _ensureSetupSpotlightStyles() {
   if (document.getElementById('setup-spotlight-styles')) return;
@@ -4834,12 +4853,12 @@ async function _cmdSetup(args, ctx) {
       return true;
     }
 
-    // Unknown topic — hint
+    // Unknown topic â€” hint
     await typewriterReply(`I don't have a setup wizard for "${topic}" yet. Try: endpoint, theme, memory, or features.`);
     return true;
   }
 
-  // First-time setup — paste API key flow
+  // First-time setup â€” paste API key flow
   _clearSetupGuideMessages();
   if (setupIntroShown) {
     return _showSetupEndpointGuide();
@@ -4848,7 +4867,7 @@ async function _cmdSetup(args, ctx) {
   return _showSetupEndpointGuide();
 }
 
-// ── Shortcuts ──
+// â”€â”€ Shortcuts â”€â”€
 
 async function _cmdShortcuts(args, ctx) {
   // Try to load user keybinds from settings
@@ -4906,7 +4925,7 @@ async function _cmdShortcuts(args, ctx) {
   return true;
 }
 
-// ── Easter eggs ──
+// â”€â”€ Easter eggs â”€â”€
 
 const _ODYSSEY_QUOTES = [
   "Tell me, O Muse, of that ingenious hero who travelled far and wide...",
@@ -4953,7 +4972,7 @@ const _FORTUNES = [
   "Your ability to juggle many tasks will take you far.",
 ];
 
-// Easter egg visual helper — renders inside a regular chat bubble
+// Easter egg visual helper â€” renders inside a regular chat bubble
 function _eggRender(html) {
   const chatBox = document.getElementById('chat-history');
   const div = document.createElement('div');
@@ -5333,7 +5352,7 @@ async function _cmdColor(args, ctx) {
   return true;
 }
 
-// ── Help (generated dynamically from COMMANDS) ──
+// â”€â”€ Help (generated dynamically from COMMANDS) â”€â”€
 
 async function _cmdHelp(args, ctx) {
   const categories = {};
@@ -5377,7 +5396,7 @@ async function _cmdHelp(args, ctx) {
   return true;
 }
 
-// ── Command registry ──────────────────────────────────────────────
+// â”€â”€ Command registry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Each top-level key is a command group.  Flat commands have a handler
 // directly; grouped commands use `subs`.  `default` is the sub run
 // when the command is invoked bare (e.g. `/chats` -> info).
@@ -5421,15 +5440,10 @@ const COMMANDS = {
   },
   memory: {
     alias: ['m'],
-    category: 'Memory',
-    help: 'Manage persistent memories',
-    default: 'list',
-    subs: {
-      'list':   { handler: _cmdMemoryList,   alias: ['ls'],          help: 'List all memories',   usage: '/memory list' },
-      'add':    { handler: _cmdMemoryAdd,    alias: ['echo'],        help: 'Save a memory',       usage: '/memory add text' },
-      'delete': { handler: _cmdMemoryDelete, alias: ['del', 'rm'],   help: 'Delete by ID',        usage: '/memory delete id' },
-      'search': { handler: _cmdMemorySearch, alias: ['grep'],        help: 'Search memories',     usage: '/memory search q' }
-    }
+    category: 'Knowledge',
+    help: 'Open Obsidian Knowledge',
+    handler: (args, ctx) => _cmdToolPanel('memory', args, ctx),
+    usage: '/memory'
   },
   rag: {
     alias: [],
@@ -5449,7 +5463,7 @@ const COMMANDS = {
     help: 'Add or list todos',
     handler: _cmdTodo,
     noUserBubble: true,
-    usage: '/todo Your task  ·  /todo list',
+    usage: '/todo Your task  Â·  /todo list',
   },
   event: {
     alias: ['ev'],
@@ -5464,7 +5478,7 @@ const COMMANDS = {
     category: 'Getting started',
     help: 'Add local or API model endpoints',
     handler: _cmdSetup,
-    usage: '/setup local URL  ·  /setup groq KEY  ·  /setup endpoint'
+    usage: '/setup local URL  Â·  /setup groq KEY  Â·  /setup endpoint'
   },
   demo: {
     alias: ['tour'],
@@ -5522,12 +5536,12 @@ const COMMANDS = {
     handler: _cmdTourGallery,
     usage: '/tour-gallery'
   },
-  'tour-brain': {
-    alias: ['brain-tour', 'tour-memory', 'memory-tour'],
+  'tour-obsidian': {
+    alias: ['obsidian-tour', 'knowledge-tour', 'tour-knowledge', 'tour-brain', 'brain-tour', 'tour-memory', 'memory-tour'],
     category: 'Tours',
-    help: 'Brain tour: memories, tidy, skills, settings',
-    handler: _cmdTourBrain,
-    usage: '/tour-brain'
+    help: 'Obsidian Knowledge tour: vault, search, skills, graph',
+    handler: _cmdTourObsidian,
+    usage: '/tour-obsidian'
   },
   'tour-task-1': {
     alias: ['tour-task', 'tour-tasks', 'tour-tasks-1', 'tasks-tour', 'tasks-tour-1'],
@@ -5577,7 +5591,7 @@ const COMMANDS = {
     category: 'Tools',
     help: 'Open Cookbook; use "serve" to jump to model serving',
     handler: (args, ctx) => _cmdToolPanel('cookbook', args, ctx),
-    usage: '/cookbook  ·  /cookbook serve qwen'
+    usage: '/cookbook  Â·  /cookbook serve qwen'
   },
   email: {
     alias: ['mail', 'inbox'],
@@ -5600,12 +5614,19 @@ const COMMANDS = {
     handler: (args, ctx) => _cmdToolPanel('tasks', args, ctx),
     usage: '/tasks'
   },
-  brain: {
-    alias: ['memories'],
+  obsidian: {
+    alias: ['brain', 'memory', 'memories', 'knowledge'],
     category: 'Tools',
-    help: 'Open Brain',
-    handler: (args, ctx) => _cmdToolPanel('brain', args, ctx),
-    usage: '/brain'
+    help: 'Open Obsidian Knowledge',
+    handler: (args, ctx) => _cmdToolPanel('obsidian', args, ctx),
+    usage: '/obsidian'
+  },
+  skills: {
+    alias: ['skill-library'],
+    category: 'Tools',
+    help: 'Open Obsidian Skills',
+    handler: (args, ctx) => _cmdToolPanel('skills', args, ctx),
+    usage: '/skills'
   },
   library: {
     alias: ['docs', 'documents'],
@@ -5706,7 +5727,7 @@ const COMMANDS = {
     handler: _cmdNote,
     usage: '/note text'
   },
-  // ── Easter eggs (hidden from /help) ──
+  // â”€â”€ Easter eggs (hidden from /help) â”€â”€
   flip:    { alias: ['coin'],       hidden: true, handler: _cmdFlip,    usage: '/flip' },
   roll:    { alias: ['dice', 'r'],  hidden: true, handler: _cmdRoll,    usage: '/roll [NdN|sides]' },
   '8ball': { alias: ['8-ball'],     hidden: true, handler: _cmd8Ball,   usage: '/8ball question' },
@@ -5722,7 +5743,7 @@ const COMMANDS = {
   color:   { alias: ['colour'],     hidden: true, handler: _cmdColor,   usage: '/color [hex]' },
 };
 
-// ── Legacy aliases ────────────────────────────────────────────────
+// â”€â”€ Legacy aliases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Maps old flat command names to { parent, sub } so `/new` still works.
 
 export const LEGACY_ALIASES = {
@@ -5752,8 +5773,6 @@ export const LEGACY_ALIASES = {
   'research':    { parent: 'toggle', sub: 'research' },
   'doc':         { parent: 'toggle', sub: 'doc' },
   'sidebar':     { parent: 'toggle', sub: 'sidebar' },
-  'memories':    { parent: 'memory', sub: 'list' },
-  'forget':      { parent: 'memory', sub: 'delete' },
   // Linux-style aliases
   'rm':          { parent: 'chats', sub: 'delete' },
   'mv':          { parent: 'chats', sub: 'rename' },
@@ -5766,7 +5785,7 @@ export const LEGACY_ALIASES = {
   'status':      { parent: 'toggle', sub: '_show' }
 };
 
-// ── Dispatch helpers ──────────────────────────────────────────────
+// â”€â”€ Dispatch helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Build context object for handlers */
 function _makeCtx() {
@@ -5832,11 +5851,11 @@ function _fuzzyMatch(typed, maxDist) {
   return matches;
 }
 
-// ── Command prefix ──────────────────────────────────────────────
+// â”€â”€ Command prefix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function _isCmd(str) { return str.startsWith('/') || str.startsWith('!'); }
 
-// ── Main dispatcher ───────────────────────────────────────────────
+// â”€â”€ Main dispatcher â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function handleSlashCommand(input) {
   const parts = input.slice(1).split(/\s+/);
@@ -5916,7 +5935,7 @@ async function handleSlashCommand(input) {
           return await subDef.handler(subArgs, ctx);
         }
 
-        // No matching sub — use default if defined
+        // No matching sub â€” use default if defined
         if (cmdDef.default) {
           const defKey = cmdDef.default;
           const defSub = cmdDef.subs[defKey];
@@ -5926,7 +5945,7 @@ async function handleSlashCommand(input) {
           }
         }
 
-        // Unknown sub — show usage
+        // Unknown sub â€” show usage
         slashReply(`Unknown subcommand. Try /${cmdKey} --help`);
         return true;
       }
@@ -5985,11 +6004,11 @@ async function handleSlashCommand(input) {
     return true;
   }
 
-  // Unknown slash command — pass through to AI
+  // Unknown slash command â€” pass through to AI
   return false;
 }
 
-// ── Public API ──────────────────────────────────────────────────────
+// â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Initialize the slash commands module.

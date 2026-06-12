@@ -112,10 +112,10 @@ const _LABELS = {
   'gallery-modal':     { label: 'Gallery',   icon: 'M3 3h18v18H3zM8.5 8.5l3 3M21 15l-5-5L5 21' },
   'tasks-modal':       { label: 'Tasks',     icon: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
   'doclib-modal':      { label: 'Library',   icon: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2zM9 7h6M9 11h4' },
-  // Full SVG markup (not a single path-d) — the rounded-lobe brain needs
+  // Full SVG markup (not a single path-d) — the rounded-lobe icon needs
   // three sub-paths, which the dock renderer supports when the icon string
   // contains '<'.
-  'memory-modal':      { label: 'Brain',     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>' },
+  'memory-modal':      { label: 'Legacy Knowledge', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 7v8l7 6 7-6V7z"/><path d="M12 3v18"/><path d="M5 7l7 5 7-5"/></svg>' },
   'obsidian-modal':    { label: 'Obsidian',  icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 7v8l7 6 7-6V7z"/><path d="M12 3v18"/><path d="M5 7l7 5 7-5"/></svg>' },
   'idea-loop-modal':   { label: 'Idea Loop', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.7-5.6"/><path d="M18 3v5h-5"/><path d="M20 12a8 8 0 0 1-13.7 5.6"/><path d="M6 21v-5h5"/></svg>' },
   'notes-panel':       { label: 'Notes',     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5"/><path d="M8 17.5 15.5 10l2.5 2.5L10.5 20H8z"/></svg>' },
@@ -1137,7 +1137,7 @@ export function register(id, { restoreFn, closeFn, railBtnId, sidebarBtnId, labe
   });
   // Auto-stack: whichever modal becomes visible last sits on top of any
   // already-open modals. The various tool open() functions (gallery,
-  // memory/brain, tasks, etc.) all just toggle `.hidden` or `display` —
+  // legacy knowledge, tasks, etc.) all just toggle `.hidden` or `display` —
   // observe both and bump the z-index on the visible→hidden→visible
   // transition. Idempotent on re-register.
   const _modalEl = document.getElementById(id);

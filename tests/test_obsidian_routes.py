@@ -153,6 +153,7 @@ def test_obsidian_taxonomy_exposes_expanded_event_types(tmp_path, monkeypatch):
     data = response.json()
     assert len(data["event_types"]) >= 168
     assert "chat.user_message" in data["event_types"]
+    assert "council.context_injected" in data["event_types"]
     assert "knowledge.verified_fix" in data["event_types"]
     assert "verified-solution" in data["genres"]
     assert data["unclassified_type"] == "unclassified.event"

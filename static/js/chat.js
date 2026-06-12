@@ -1038,6 +1038,7 @@ import createResearchSynapse from './researchSynapse.js';
         'list_files': 'Browsing',
         'image_gen': 'Generating',
         'generate_image': 'Generating',
+        'manage_knowledge': 'Remembering',
         'manage_memory': 'Remembering',
         'save_memory': 'Remembering',
         'search_memory': 'Recalling',
@@ -2102,8 +2103,8 @@ import createResearchSynapse from './researchSynapse.js';
                   window._manageCalTimer = setTimeout(
                     () => window.dispatchEvent(new CustomEvent('calendar-refresh')), 600);
                 }
-                // --- Live-refresh Memories after manage_memory changes ---
-                if (json.tool === 'manage_memory') {
+                // --- Live-refresh Obsidian knowledge after knowledge changes ---
+                if (json.tool === 'manage_knowledge' || json.tool === 'manage_memory') {
                   if (window._manageMemoryTimer) clearTimeout(window._manageMemoryTimer);
                   window._manageMemoryTimer = setTimeout(
                     () => window.dispatchEvent(new CustomEvent('memory-refresh')), 600);
