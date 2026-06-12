@@ -315,6 +315,14 @@ def setup_chat_routes(
         incognito = str(form_data.get("incognito", "")).lower() == "true"
         council_mode = str(form_data.get("council_mode", "")).lower() == "true"
         council_tool_scope = str(form_data.get("council_tool_scope", "")).lower()
+        council_build_dir_raw = str(form_data.get("council_build_dir", "") or "").strip().replace("\\", "/")
+        council_build_dir = ""
+        if council_mode and council_tool_scope == "build" and council_build_dir_raw:
+            import re as _re
+            if _re.fullmatch(r"data/council-builds/[a-z0-9][a-z0-9-]{0,100}", council_build_dir_raw):
+                council_build_dir = council_build_dir_raw
+            else:
+                logger.warning("[council-tools] rejected invalid council_build_dir=%r", council_build_dir_raw)
         chat_mode = str(form_data.get("mode", "")).lower()  # 'chat' or 'agent'
         # Did the USER explicitly pick agent mode? (vs. us auto-escalating
         # below). Skill extraction should only learn from real agent sessions,
@@ -940,6 +948,7 @@ def setup_chat_routes(
                         session_id=session,
                         disabled_tools=disabled_tools if disabled_tools else None,
                         relevant_tools=council_relevant_tools,
+                        tool_constraints={"council_build_dir": council_build_dir} if council_build_dir else None,
                         owner=_user,
                         fallbacks=_fallback_candidates,
                     ):

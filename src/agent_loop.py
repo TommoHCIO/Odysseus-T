@@ -1333,6 +1333,7 @@ async def stream_agent_loop(
     disabled_tools: Optional[Set[str]] = None,
     owner: Optional[str] = None,
     relevant_tools: Optional[Set[str]] = None,
+    tool_constraints: Optional[Dict] = None,
     fallbacks: Optional[List[tuple]] = None,
     _is_teacher_run: bool = False,
 ) -> AsyncGenerator[str, None]:
@@ -2000,6 +2001,7 @@ async def stream_agent_loop(
                         session_id=session_id,
                         disabled_tools=disabled_tools,
                         owner=owner,
+                        tool_constraints=tool_constraints,
                         progress_cb=_push_progress,
                     )
                 finally:

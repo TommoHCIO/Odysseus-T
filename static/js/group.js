@@ -33,6 +33,8 @@ const COUNCIL_ROLES = [
 const COUNCIL_CONSENSUS_TARGET = 85;
 const COUNCIL_MIN_AGENT_CONSENSUS = 80;
 const COUNCIL_MAX_CONSENSUS_ROUNDS = 3;
+const COUNCIL_ARTIFACT_QA_MIN_SCORE = 85;
+const COUNCIL_ARTIFACT_QA_MAX_REVISIONS = 2;
 
 export function init(apiBase) {
   API_BASE = apiBase;
@@ -857,6 +859,7 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
     pushTask: originalTask,
     phase: 'Council synthesis',
     councilMode: true,
+    suppressIdeaPush: true,
   };
   if (stage === 'final') {
     Object.assign(synthesisOptions, {
@@ -864,6 +867,7 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
       allowBash: true,
       allowWebSearch: true,
       councilToolScope: 'build',
+      councilBuildDir: buildPaths?.toolPath,
     });
   }
   await _streamToHolder(
@@ -878,6 +882,18 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
 
   const finalResponse = finalWrap.dataset.raw || '';
   if (finalResponse) await _syncResponseToOtherSessions(synthesisIdx, finalResponse, 'Council synthesis');
+  await _qaCouncilArtifactAndPush({
+    task: originalTask,
+    protocolTask: msg,
+    box,
+    holders,
+    modelIdx: synthesisIdx,
+    initialHolder: finalWrap,
+    transcript,
+    buildPaths,
+    consensus,
+    stage,
+  });
   _saveState();
   return holders;
 }
@@ -1116,19 +1132,27 @@ function _buildCouncilSynthesisPrompt(baseMsg, transcript, buildPaths = null) {
   const stageContract = {
     ideas: 'Produce several implementation ideas for user approval across the actual target delivery type, with architecture, research needs, risks, and clear recommendation criteria. Do not include a runnable build yet.',
     sketch: 'Produce an executable prototype sketch for the intended delivery type, not only a webpage. Include exactly one complete runnable HTML preview harness in a fenced html block for Idea Loop only; it must include a root element with data-odysseus-project-sketch="1" and meaningful interactive controls. Outside that preview, include the real target package shape: project type, repository/file tree, primary components/files, APIs/commands/services/data model, local run and test commands, validation plan, and open questions.',
-    final: 'Produce the final product package for the intended delivery type, not only a webpage. Include exactly one complete runnable HTML review harness in a fenced html block for Idea Loop only; it must include a root element with data-odysseus-project-review="1" and meaningful interactive controls. The review harness must use the actual product/app name, domain data, workflow labels, file/package evidence, and validation status; never use generic titles like "Council Collaboration Review Build", "Full-Stack Product", or "Project Review Build" unless that is literally the requested product. Outside that preview, include the real target package: repository/file tree, key source files created, APIs/schemas/commands/services/data model, local run and test commands, QA evidence, documentation, deployment notes, and knowledge storage notes.',
+    final: 'Produce the final product package for the intended delivery type, not only a webpage. The preferred Phase 3 result is a real runnable app package in the Council build directory with localhost run evidence. If the real target cannot be previewed directly in a browser, include exactly one complete runnable HTML review harness in a fenced html block for Idea Loop only; it must include a root element with data-odysseus-project-review="1" and meaningful interactive controls. Any review harness must use the actual product/app name, domain data, workflow labels, file/package evidence, and validation status; never use generic titles like "Council Collaboration Review Build", "Full-Stack Product", or "Project Review Build" unless that is literally the requested product. Outside any preview, include the real target package: repository/file tree, key source files created, APIs/schemas/commands/services/data model, local run and test commands, QA evidence, documentation, deployment notes, and knowledge storage notes.',
   }[stage] || 'Produce the requested Council artifact.';
   const finalBuildRequirements = stage === 'final'
     ? [
       '',
       'Phase 3 real app build requirements:',
-      `- Build the actual app package under: ${buildPaths?.container || '/app/data/council-builds/[project]'}`,
+      `- Build the actual app package under the Council build tool path: ${buildPaths?.toolPath || 'data/council-builds/[project]'}`,
       `- Host-visible path for the user: ${buildPaths?.host || 'data/council-builds/[project]'}`,
+      '- This local Windows tool runner starts in the Odysseus workspace root. Use workspace-relative paths that start with the Council build tool path above.',
       '- Use available build tools (`write_file`, `read_file`, `bash`, `python`) to create real files. Keep every write inside that build directory.',
-      '- Minimum required files: README.md, a runnable entrypoint, source modules, dependency/config file, and at least one test or smoke-check script.',
+      `- First build action: create ${buildPaths?.readmePath || 'data/council-builds/[project]/README.md'} with \`write_file\`, then create the entrypoint/config/test files under the same directory. Do not start with bash heredocs, Docker commands, /tmp files, /app paths, Desktop paths, C:\\Users paths, or repository-root files.`,
+      '- Forbidden build outputs: /tmp, /app/data, C:\\Users, Desktop, the repository root, relative paths like resilience-mesh.html, or instructions telling the user to copy/open a file you did not place in the build directory.',
+      '- Do not run docker-compose up/down from the Odysseus repository root. If Docker support is part of the product, write docker-compose.yml inside the Council build directory and validate with a local syntax/smoke command there.',
+      '- Important limitation: the Idea Loop HTML sandbox is only a review harness, not a native runtime for mobile apps, desktop apps, API servers, CLIs, Docker stacks, or full backend services. Phase 3 should create the real package first; Odysseus will attempt a constrained localhost preview from the build directory after QA if the package is complete and ready to run.',
+      '- Do not execute install/start/deploy commands as tools (`npm install`, `npm run dev`, `npm run build`, `docker-compose up`, `docker compose up`). Document those as local run commands in the final answer instead. Tool validation should be read-only: file existence, JSON parsing, syntax checks, line counts, or smoke scripts that do not start services.',
+      '- If a build command fails, recover by writing a minimal valid package inside the required build directory and run a syntax/smoke check there; do not drift to manual file-copy instructions or outside directories.',
+      '- Minimum required files: README.md, a runnable entrypoint, source modules, a dependency/config file such as package.json, requirements.txt, or pyproject.toml, and at least one test or smoke-check script.',
       '- Match the requested target: websites should be runnable browser apps; APIs should include server routes and contract examples; CLIs should include commands and executable entrypoint; agents should include tool policy/eval harness; games should include playable loop; automation should include trigger/action pipeline.',
       '- Run at least one local validation command after writing files, such as syntax check, unit test, smoke script, or static server check. Include the exact command and result.',
       '- If a platform-specific binary build is impossible in this environment, still create the real source project and local runnable substitute, then mark the missing external build step as a blocker. Do not call a spec-only response a final product.',
+      '- In the final response, either provide a complete package-only final review with exact localhost run evidence, or put one fenced html review harness before long package notes. If an html block is present, the first fenced code block must be ```html and must contain data-odysseus-project-review="1".',
     ]
     : [];
   return [
@@ -1149,6 +1173,140 @@ function _buildCouncilSynthesisPrompt(baseMsg, transcript, buildPaths = null) {
     ...finalBuildRequirements,
     '- Preserve the full Council lifecycle gates and state the next user approval gate clearly.',
   ].join('\n');
+}
+
+async function _qaCouncilArtifactAndPush({ task, protocolTask, box, holders, modelIdx, initialHolder, transcript, buildPaths, consensus, stage }) {
+  if (stage !== 'sketch' && stage !== 'final') {
+    await _pushCouncilIdea(task, initialHolder, modelIdx);
+    return;
+  }
+
+  let candidateHolder = initialHolder;
+  let qaResult = _evaluateCouncilArtifactQuality(_councilQaCandidateText(candidateHolder), stage, task, buildPaths);
+  let attempts = 0;
+  _storeCouncilQaResult(candidateHolder, qaResult, attempts);
+
+  while (!qaResult.passed && attempts < COUNCIL_ARTIFACT_QA_MAX_REVISIONS) {
+    attempts += 1;
+    const failureSummary = qaResult.failures.slice(0, 3).join('; ') || 'quality gate failed';
+    _appendCouncilNotice(box, `Council artifact QA revision ${attempts}: score ${qaResult.score}%; ${failureSummary}`);
+
+    const revisionIdx = _models.length ? (modelIdx + attempts) % _models.length : modelIdx;
+    const revisionWrap = _createGroupBubble(_models[revisionIdx] || _models[modelIdx], box);
+    revisionWrap.dataset.councilPhase = `qa-revision-${attempts}`;
+    revisionWrap.dataset.councilFinal = '1';
+    revisionWrap.dataset.councilTranscript = transcript || '';
+    revisionWrap.dataset.councilConsensus = JSON.stringify(consensus || {});
+    revisionWrap.dataset.councilQaAttempt = String(attempts);
+    if (buildPaths) revisionWrap.dataset.councilBuildPath = buildPaths.host;
+    holders.push(revisionWrap);
+    uiModule.scrollHistory();
+
+    const ac = new AbortController();
+    _abortControllers = [ac];
+    const revisionOptions = {
+      pushTask: task,
+      phase: `Council artifact QA revision ${attempts}`,
+      councilMode: true,
+      suppressIdeaPush: true,
+    };
+    if (stage === 'final') {
+      Object.assign(revisionOptions, {
+        mode: 'agent',
+        allowBash: true,
+        allowWebSearch: true,
+        councilToolScope: 'build',
+        councilBuildDir: buildPaths?.toolPath,
+      });
+    }
+    await _streamToHolder(
+      revisionIdx,
+      _participantSessions[revisionIdx],
+      _buildCouncilArtifactRevisionPrompt(protocolTask || task, transcript, _councilQaCandidateText(candidateHolder), qaResult, attempts, buildPaths),
+      revisionWrap,
+      ac,
+      revisionOptions
+    );
+    _abortControllers = [];
+
+    const revisedResponse = revisionWrap.dataset.raw || '';
+    if (revisedResponse) await _syncResponseToOtherSessions(revisionIdx, revisedResponse, `Council artifact QA revision ${attempts}`);
+    candidateHolder = revisionWrap;
+    qaResult = _evaluateCouncilArtifactQuality(_councilQaCandidateText(candidateHolder), stage, task, buildPaths);
+    _storeCouncilQaResult(candidateHolder, qaResult, attempts);
+  }
+
+  _appendCouncilNotice(
+    box,
+    qaResult.passed
+      ? `Council artifact QA passed: ${qaResult.score}%`
+      : `Council artifact QA blocked: ${qaResult.score}% after ${attempts} revision attempt${attempts === 1 ? '' : 's'}`
+  );
+  await _pushCouncilIdea(task, candidateHolder, modelIdx, {
+    qaResult,
+    qaAttempts: attempts,
+    blocked: !qaResult.passed,
+    consensus,
+    buildPaths,
+  });
+}
+
+function _buildCouncilArtifactRevisionPrompt(baseMsg, transcript, priorResponse, qaResult, attempt, buildPaths = null) {
+  const stage = _councilStageFromTask(baseMsg);
+  const marker = stage === 'final' ? 'data-odysseus-project-review="1"' : 'data-odysseus-project-sketch="1"';
+  const finalRequirements = stage === 'final'
+    ? [
+      '',
+      'Final package repair requirements:',
+      `- Keep all real app file work inside ${buildPaths?.toolPath || 'data/council-builds/[project]'}.`,
+      `- Mention the host-visible build directory ${buildPaths?.host || 'data/council-builds/[project]'} in the final response.`,
+      `- Use \`write_file\` with paths that start exactly with ${buildPaths?.toolPath || 'data/council-builds/[project]'}; never use /tmp, /app/data, C:\\Users, Desktop, repository-root, or arbitrary relative output paths.`,
+      '- If prior tool calls wrote outside the build directory, treat those as failed attempts and rebuild inside the required directory before answering.',
+      '- Do not execute install/start/deploy commands with tools (`npm install`, `npm run dev`, `npm run build`, `docker-compose up`, `docker compose up`). Mention them only as documented run commands. Use tools only for read-only validation or missing file writes inside the build directory.',
+      '- Important limitation to include: the Idea Loop HTML sandbox is only a review harness, not a native runtime for mobile, desktop, API server, CLI, Docker stack, or backend service execution. A complete final package can still be reviewed through the constrained localhost preview runner after QA.',
+      '- Include at least three concrete file or command references, including README.md plus an entrypoint/config/test or smoke script.',
+      '- Include an exact local validation command and result such as passed, 0 failed, success, exit code 0, or syntax-ok.',
+      '- Include exact localhost preview/run evidence, such as `npm run dev -- --host 127.0.0.1 --port 5173`, `PORT=8000 python -m ...`, or the documented route/health URL. Do not execute that server-start command with tools.',
+    ]
+    : [];
+  return [
+    baseMsg,
+    '',
+    `[COUNCIL_PHASE:artifact_qa_revision_${attempt}]`,
+    `The Council candidate did not pass the hard artifact QA gate (${qaResult.score}%).`,
+    'Do not debate a new idea. Repair the same artifact and return a complete replacement response.',
+    '',
+    'Failed checks to fix:',
+    ...qaResult.failures.map((failure) => `- ${failure}`),
+    qaResult.warnings.length ? '' : null,
+    ...qaResult.warnings.map((warning) => `Warning: ${warning}`),
+    '',
+    'Mandatory repaired output:',
+    stage === 'final'
+      ? '- For final builds, either start with a single fenced ```html review harness or provide complete package-only localhost preview evidence before the long package narrative.'
+      : '- Start the replacement response with the single fenced ```html prototype harness before any long package narrative.',
+    stage === 'final'
+      ? `- If you include html, include exactly one fenced html code block with a root element containing ${marker}.`
+      : `- Include exactly one fenced html code block with a root element containing ${marker}.`,
+    '- Use the real product/app name, domain data, workflow labels, package evidence, and validation evidence from the task.',
+    '- Avoid generic titles, generic rows, placeholder dashboards, and template language.',
+    '- Include at least two meaningful controls and scripted state or event handling in the preview harness.',
+    '- Include visible sections for the core user workflow, data/contract evidence, and QA/acceptance status.',
+    ...finalRequirements,
+    '',
+    'Council transcript for context:',
+    _compactCouncilTranscript(transcript, 5200),
+    '',
+    'Prior candidate to repair:',
+    _compactCouncilTranscript(priorResponse, 9000),
+  ].filter((line) => line !== null).join('\n');
+}
+
+function _storeCouncilQaResult(holder, qaResult, attempts = 0) {
+  if (!holder) return;
+  const stored = _qaResultForStorage(qaResult, attempts);
+  holder.dataset.councilQa = JSON.stringify(stored);
+  holder.dataset.councilQaPassed = qaResult.passed ? '1' : '0';
 }
 
 function _buildCouncilTranscript(holders) {
@@ -1176,6 +1334,39 @@ function _councilToolsSummary(holder) {
   }
 }
 
+function _isCouncilBlockedToolEvent(event) {
+  const exitCode = Number(event?.exitCode);
+  const output = String(event?.output || '');
+  return exitCode !== 0 && /Council build scope blocked|BLOCKED/i.test(output);
+}
+
+function _councilToolEvidenceText(holder, options = {}) {
+  try {
+    const events = JSON.parse(holder?.dataset?.councilTools || '[]');
+    return events
+      .filter((event) => !(options.omitBlockedForQa && _isCouncilBlockedToolEvent(event)))
+      .map((event) => [
+        `TOOL ${event.tool || 'tool'}`,
+        event.command ? `COMMAND: ${event.command}` : '',
+        event.output ? `OUTPUT: ${event.output}` : '',
+        event.exitCode !== undefined ? `EXIT_CODE: ${event.exitCode}` : '',
+      ].filter(Boolean).join('\n'))
+      .join('\n\n');
+  } catch (_) {
+    return '';
+  }
+}
+
+function _councilQaCandidateText(holder) {
+  const raw = String(holder?.dataset?.raw || '');
+  const toolEvidence = _councilToolEvidenceText(holder, { omitBlockedForQa: true });
+  return toolEvidence ? `${raw}\n\nCouncil tool evidence:\n${toolEvidence}` : raw;
+}
+
+function _isNoConsensusBlockerLine(value) {
+  return /^(none|no|n\/a|not applicable)\b/i.test(String(value || '').trim());
+}
+
 function _parseCouncilConsensusVote(holder) {
   const raw = String(holder?.dataset?.raw || '');
   const roleEl = holder?.querySelector?.('.role');
@@ -1187,13 +1378,13 @@ function _parseCouncilConsensusVote(holder) {
   const score = Math.max(0, Math.min(100, Number(scoreMatch?.[1] || 0)));
   const blockerMatch = raw.match(/^\s*BLOCKER\s*[:=]\s*(yes|no|true|false)\s*$/im);
   const blockersLine = raw.match(/^\s*BLOCKERS\s*[:=]\s*([^\n]+)\s*$/im)?.[1]?.trim() || '';
-  const hasNamedBlockers = Boolean(blockersLine && !/^(none|no|n\/a|not applicable)$/i.test(blockersLine));
+  const hasNamedBlockers = Boolean(blockersLine && !_isNoConsensusBlockerLine(blockersLine));
   const blocker = blockerMatch ? /yes|true/i.test(blockerMatch[1]) : hasNamedBlockers;
   return {
     name,
     score,
     blocker,
-    blockers: blockersLine && !/^none$/i.test(blockersLine) ? blockersLine : '',
+    blockers: blockersLine && !_isNoConsensusBlockerLine(blockersLine) ? blockersLine : '',
     rationale: raw.match(/RATIONALE\s*[:=]\s*([^\n]+)/i)?.[1]?.trim() || '',
   };
 }
@@ -1267,10 +1458,13 @@ function _councilBuildPaths(task) {
   const title = _ideaTitleFromTask(task);
   const idPart = source.id ? source.id.slice(0, 8) : String(Date.now()).slice(-8);
   const slug = `${_slugifyCouncilValue(title)}-${_slugifyCouncilValue(idPart, 'build')}`.slice(0, 84);
+  const toolPath = `data/council-builds/${slug}`;
   return {
     slug,
-    container: `/app/data/council-builds/${slug}`,
-    host: `data/council-builds/${slug}`,
+    toolPath,
+    readmePath: `${toolPath}/README.md`,
+    container: toolPath,
+    host: toolPath,
   };
 }
 
@@ -1372,22 +1566,255 @@ function _hasHtmlArtifact(value) {
   return /```(?:html|HTML)[ \t]*\r?\n[\s\S]*?```|<!doctype html|<html[\s>]/i.test(String(value || ''));
 }
 
+function _stripCouncilThinking(value) {
+  return String(value || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
+function _extractCouncilHtmlBlocks(value) {
+  const text = _stripCouncilThinking(value);
+  return [...text.matchAll(/```(?:html|HTML)[ \t]*\r?\n([\s\S]*?)```/g)]
+    .map((match) => (match[1] || '').trim())
+    .filter(Boolean);
+}
+
+function _removeCouncilHtmlBlocks(value) {
+  return _stripCouncilThinking(value).replace(/```(?:html|HTML)[ \t]*\r?\n[\s\S]*?```/g, ' ');
+}
+
+function _extractCouncilStageHtml(value, stage) {
+  const blocks = _extractCouncilHtmlBlocks(value);
+  const marker = stage === 'final' ? 'review' : 'sketch';
+  const verified = blocks.slice().reverse().find((block) => new RegExp(`data-odysseus-(?:project|fuel)-${marker}="1"`, 'i').test(block));
+  return (verified || blocks[blocks.length - 1] || '').trim();
+}
+
+function _stripHtmlForQuality(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function _extractHtmlTagText(html, tagName) {
+  const match = String(html || '').match(new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'));
+  return match ? _stripHtmlForQuality(match[1]) : '';
+}
+
+function _qualityTermsForTask(task, profile) {
+  const stop = new Set([
+    'about', 'after', 'agent', 'agents', 'also', 'and', 'application', 'build', 'can', 'code',
+    'create', 'final', 'from', 'have', 'html', 'idea', 'include', 'local', 'make', 'must', 'only',
+    'phase', 'preview', 'product', 'prototype', 'real', 'review', 'should', 'sketch', 'task', 'that',
+    'the', 'their', 'them', 'this', 'tool', 'tools', 'user', 'with', 'workflow',
+  ]);
+  const raw = [
+    profile?.name,
+    profile?.noun,
+    profile?.action,
+    _cleanCouncilTask(task),
+  ].join(' ').toLowerCase();
+  const terms = raw
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .map((term) => term.replace(/^-+|-+$/g, ''))
+    .filter((term) => term.length >= 4 && !stop.has(term));
+  return [...new Set(terms)].slice(0, 24);
+}
+
+function _countQualityTermHits(text, terms) {
+  const haystack = String(text || '').toLowerCase();
+  return terms.filter((term) => haystack.includes(term.toLowerCase())).length;
+}
+
+function _countQualityPatternHits(text, patterns) {
+  const haystack = String(text || '');
+  return patterns.filter((pattern) => pattern.test(haystack)).length;
+}
+
+function _evaluateCouncilArtifactQuality(response, stage, task, buildPaths = null) {
+  const normalizedStage = stage === 'final' ? 'final' : stage === 'sketch' ? 'sketch' : 'ideas';
+  const text = _stripCouncilThinking(response);
+  const htmlBlocks = _extractCouncilHtmlBlocks(text);
+  const extractedHtml = normalizedStage === 'ideas' ? '' : _extractCouncilStageHtml(text, normalizedStage);
+  const visibleText = _stripHtmlForQuality(extractedHtml);
+  const outsideHtml = _removeCouncilHtmlBlocks(text);
+  const profile = _inferProjectProfile(task, response);
+  const markerName = normalizedStage === 'final' ? 'review' : 'sketch';
+  const markerPattern = new RegExp(`data-odysseus-(?:project|fuel)-${markerName}="1"`, 'i');
+  const genericPattern = /(Council Collaboration Review Build|Full-Stack Product Review Build|Full-Stack Product|Project Review Build|Local final product fallback|Local prototype fallback|New local record|generic dashboard|placeholder dashboard)/i;
+  const genericWorkflowPatterns = [
+    /Responsive screen/i,
+    /API contract/i,
+    /Persistent state/i,
+    /Browser smoke test/i,
+    /Target deliverable/i,
+  ];
+  const htmlTitleText = _extractHtmlTagText(extractedHtml, 'title') || _extractHtmlTagText(extractedHtml, 'h1');
+  const packageTitleText =
+    outsideHtml.match(/^\s*#\s+(.+)$/m)?.[1]?.trim()
+    || outsideHtml.match(/"name"\s*:\s*"([^"]+)"/i)?.[1]?.trim()
+    || (profile.key !== 'generic' ? profile.name : '');
+  const titleText = htmlTitleText || (normalizedStage === 'final' ? packageTitleText : '');
+  const domainTerms = _qualityTermsForTask(task, profile);
+  const domainTermHits = _countQualityTermHits(`${visibleText}\n${outsideHtml}`, domainTerms);
+  const genericWorkflowHits = _countQualityPatternHits(extractedHtml, genericWorkflowPatterns);
+  const controlCount = (extractedHtml.match(/<(?:button|input|select|textarea|form)\b/gi) || []).length;
+  const linkControlCount = (extractedHtml.match(/<a\b[^>]*href=/gi) || []).length;
+  const meaningfulControlCount = controlCount + linkControlCount;
+  const hasScript = /<script\b[\s\S]*?<\/script>/i.test(extractedHtml);
+  const hasEventHandling = /addEventListener|on(?:click|input|change|submit)=|getElementById|querySelector|localStorage|sessionStorage|dispatchEvent|=>\s*\{|function\s+\w+\s*\(/i.test(extractedHtml);
+  const semanticSectionCount = (extractedHtml.match(/<(?:section|article|main|aside|nav)\b/gi) || []).length;
+  const classSectionCount = (extractedHtml.match(/class=["'][^"']*(?:section|panel|card|workflow|module|column|lane)[^"']*["']/gi) || []).length;
+  const sectionCount = semanticSectionCount + classSectionCount;
+  const headingCount = (extractedHtml.match(/<h[1-3]\b/gi) || []).length;
+  const hasViewport = /<meta\b[^>]*name=["']viewport["']/i.test(extractedHtml);
+  const hasResponsiveCue = /@media|grid-template-columns|display\s*:\s*grid|display\s*:\s*flex|minmax\(|clamp\(/i.test(extractedHtml);
+  const packagePatterns = [
+    /README\.md/i,
+    /package\.json/i,
+    /requirements\.txt/i,
+    /pyproject\.toml/i,
+    /Dockerfile/i,
+    /\bsrc[\\/]/i,
+    /\bapp[\\/]/i,
+    /\btests?[\\/]/i,
+    /\bentrypoint\b/i,
+    /\bfile tree\b/i,
+    /\bnpm run\b/i,
+    /\bpnpm\b/i,
+    /\bpytest\b/i,
+    /\bnode --check\b/i,
+    /\bpython -m\b/i,
+    /\bcurl\b/i,
+  ];
+  const packageHits = _countQualityPatternHits(outsideHtml, packagePatterns);
+  const validationCommand = /\b(npm|pnpm|yarn|pytest|node|python|uvicorn|docker|curl)\b|smoke|test|check|validation/i.test(outsideHtml);
+  const validationResult = /\b(passed|pass|0 failed|0 failures|ok|success|exit code 0|syntax-ok|completed|validated)\b/i.test(outsideHtml);
+  const buildPathText = `${buildPaths?.toolPath || ''}\n${buildPaths?.host || ''}\n${buildPaths?.container || ''}`.trim();
+  const forbiddenBuildPathPattern = /(?:C:\\Users\\|\/tmp\b|\/app\/data\b|Desktop|repository root|\b[A-Za-z]:\\(?:Users|Windows|Program Files)\\|(?:^|[\s`'"])resilience-mesh(?:[\\/.]|$))/i;
+  const forbiddenToolEvidencePattern = /Council tool evidence:[\s\S]*(?:C:\\Users\\|\/tmp\b|\/app\/data\b|Desktop|docker-compose\s+up|docker compose\s+up|(?:^|[\s`'"])resilience-mesh(?:[\\/.]|$))/i;
+
+  const checks = {
+    marker: normalizedStage === 'ideas' || markerPattern.test(extractedHtml),
+    singleHtmlBlock: normalizedStage === 'ideas' || htmlBlocks.length === 1,
+    productName: Boolean(titleText && !genericPattern.test(titleText) && titleText.length >= 4),
+    domainTerms: domainTermHits >= 3,
+    genericShell: genericPattern.test(`${titleText}\n${visibleText}\n${extractedHtml}`)
+      || (profile.key !== 'generic' && genericWorkflowHits >= 2),
+    interaction: meaningfulControlCount >= 2 && hasScript && hasEventHandling,
+    visualStructure: Boolean(titleText) && headingCount >= 1 && sectionCount >= 2 && hasViewport && hasResponsiveCue,
+    packageEvidence: normalizedStage === 'final' ? packageHits >= 3 : packageHits >= 2 || /file tree|run commands|test commands|storage model|api|schema|command/i.test(outsideHtml),
+    validationEvidence: normalizedStage === 'final'
+      ? validationCommand && validationResult
+      : /validation plan|qa checks?|test commands?|browser checks?|smoke/i.test(outsideHtml),
+    buildPath: normalizedStage !== 'final' || Boolean(buildPathText && (text.includes(buildPaths?.toolPath || '\u0000') || text.includes(buildPaths?.host || '\u0000'))),
+    buildPathSafety: normalizedStage !== 'final' || (!forbiddenBuildPathPattern.test(text) && !forbiddenToolEvidencePattern.test(text)),
+  };
+  const packageReviewOnly = normalizedStage === 'final'
+    && !extractedHtml
+    && htmlBlocks.length === 0
+    && checks.productName
+    && checks.domainTerms
+    && !checks.genericShell
+    && checks.packageEvidence
+    && checks.validationEvidence
+    && checks.buildPath
+    && checks.buildPathSafety
+    && /(?:localhost|127\.0\.0\.1|PORT=|--port|\bport\b|npm run|pnpm|yarn|python -m|uvicorn|flask|cargo run|dotnet run|go run)/i.test(outsideHtml);
+  if (packageReviewOnly) {
+    checks.marker = true;
+    checks.singleHtmlBlock = true;
+    checks.interaction = true;
+    checks.visualStructure = true;
+  }
+  checks.packageReviewOnly = packageReviewOnly;
+  checks.productSpecificity = checks.productName && checks.domainTerms && !checks.genericShell;
+
+  const failures = [];
+  const warnings = [];
+  const requiresHtmlPreview = normalizedStage !== 'ideas' && !checks.packageReviewOnly;
+  if (requiresHtmlPreview && !extractedHtml) failures.push('Missing fenced HTML artifact for this stage, or missing package-only localhost preview evidence for a final build.');
+  if (requiresHtmlPreview && !checks.marker) failures.push(`HTML preview is missing the required data-odysseus-${normalizedStage === 'final' ? 'project-review' : 'project-sketch'} marker.`);
+  if (requiresHtmlPreview && !checks.singleHtmlBlock) failures.push(`Expected exactly one fenced html block, found ${htmlBlocks.length}.`);
+  if (!checks.productName) failures.push('Preview title or H1 is missing a real, non-generic product name.');
+  if (!checks.domainTerms) failures.push(`Preview/body uses too little task-specific language (${domainTermHits}/3 domain terms found).`);
+  if (checks.genericShell) failures.push('Preview appears to be a generic shell or fallback template.');
+  if (requiresHtmlPreview && !checks.interaction) failures.push(`Preview must include at least two meaningful controls with scripted state or event handling (found ${meaningfulControlCount}).`);
+  if (requiresHtmlPreview && !checks.visualStructure) failures.push('Preview needs responsive viewport, clear title/heading, and at least two structured workflow sections.');
+  if (!checks.packageEvidence) failures.push(normalizedStage === 'final'
+    ? `Final response needs at least three concrete file/package/command references (found ${packageHits}).`
+    : 'Sketch response needs concrete package shape, run/test commands, or service/data contract evidence.');
+  if (!checks.validationEvidence) failures.push(normalizedStage === 'final'
+    ? 'Final response needs an exact local validation command and result.'
+    : 'Sketch response needs an explicit validation or QA plan.');
+  if (!checks.buildPath) failures.push(`Final response must mention the Council build directory ${buildPaths?.host || 'data/council-builds/[project]'}.`);
+  if (!checks.buildPathSafety) failures.push('Final build evidence includes forbidden outside-directory writes or repository-root Docker commands.');
+  if (domainTerms.length < 3) warnings.push('Task supplied few distinctive domain terms; QA used the inferred project profile as fallback.');
+  if (checks.packageReviewOnly) warnings.push('No HTML sandbox artifact was provided; Idea Loop will use the real package localhost preview path instead.');
+
+  const scoreItems = [
+    ['marker', 15],
+    ['singleHtmlBlock', 10],
+    ['productSpecificity', 25],
+    ['interaction', 20],
+    ['visualStructure', 15],
+    ['packageEvidence', 10],
+    ['validationEvidence', normalizedStage === 'final' ? 10 : 5],
+  ];
+  if (normalizedStage === 'final') scoreItems.push(['buildPath', 5]);
+  if (normalizedStage === 'final') scoreItems.push(['buildPathSafety', 10]);
+  const possible = scoreItems.reduce((sum, [, weight]) => sum + weight, 0) || 1;
+  const earned = scoreItems.reduce((sum, [key, weight]) => sum + (checks[key] ? weight : 0), 0);
+  const score = Math.max(0, Math.min(100, Math.round((earned / possible) * 100)));
+
+  return {
+    passed: score >= COUNCIL_ARTIFACT_QA_MIN_SCORE && failures.length === 0,
+    score,
+    failures,
+    warnings,
+    extractedHtml,
+    profile: {
+      key: profile.key,
+      name: profile.name,
+      noun: profile.noun,
+      action: profile.action,
+    },
+    checks: {
+      ...checks,
+      htmlBlockCount: htmlBlocks.length,
+      domainTermHits,
+      meaningfulControlCount,
+      packageHits,
+      titleText,
+    },
+  };
+}
+
+function _qaResultForStorage(qaResult, attempts = 0) {
+  return {
+    passed: Boolean(qaResult?.passed),
+    score: Number(qaResult?.score || 0),
+    failures: Array.isArray(qaResult?.failures) ? qaResult.failures.slice(0, 12) : [],
+    warnings: Array.isArray(qaResult?.warnings) ? qaResult.warnings.slice(0, 8) : [],
+    attempts,
+    checks: qaResult?.checks || {},
+    profile: qaResult?.profile || {},
+  };
+}
+
 function _hasVerifiedReviewArtifact(value, task = '') {
-  const text = String(value || '');
-  const profile = _inferProjectProfile(task, '');
-  if (profile.key === 'fuel') return text.includes('data-odysseus-fuel-review="1"');
-  if (!text.includes('data-odysseus-project-review="1"')) return false;
-  const genericCouncilShell = /(Council Collaboration Review Build|New Council signal|Agent stance map|Challenge quote links|Tune team debate)/i.test(text);
-  const genericProductShell = /(Full-Stack Product Review Build|Project Review Build|New local record)/i.test(text);
-  if ((genericCouncilShell && profile.key !== 'council') || genericProductShell) return false;
-  return true;
+  return _evaluateCouncilArtifactQuality(value, 'final', task, _councilBuildPaths(task)).passed;
 }
 
 function _hasVerifiedSketchArtifact(value, task = '') {
-  const text = String(value || '');
-  const profile = _inferProjectProfile(task, '');
-  if (profile.key === 'fuel') return text.includes('data-odysseus-fuel-sketch="1"');
-  return text.includes('data-odysseus-project-sketch="1"');
+  return _evaluateCouncilArtifactQuality(value, 'sketch', task, null).passed;
 }
 
 function _htmlText(value) {
@@ -1737,21 +2164,35 @@ function _fallbackProjectArtifact(stage, task, response) {
 
 function _ensureStageArtifact(response, stage, task = '') {
   if (stage !== 'sketch' && stage !== 'final') return response;
-  if (stage === 'sketch' && _hasVerifiedSketchArtifact(response, task)) return response;
-  if (stage === 'final' && _hasVerifiedReviewArtifact(response, task)) return response;
-  const label = stage === 'final' ? 'Local final product fallback' : 'Local prototype fallback';
-  const reason = stage === 'final'
-    ? 'the Council response did not include a verified runnable project marker, so Odysseus attached a local single-file review build for this project type.'
-    : 'the Council response did not include a runnable HTML block, so Odysseus attached a local single-file prototype artifact for review.';
+  const buildPaths = stage === 'final' ? _councilBuildPaths(task) : null;
+  return _evaluateCouncilArtifactQuality(response, stage, task, buildPaths).passed ? response : '';
+}
+
+function _buildCouncilQaBlockedBody(task, stage, qaResult, attempts, consensus = null) {
   return [
-    response,
+    '## Council artifact QA blocked',
     '',
-    `${label}: ${reason}`,
+    `Stage: ${stage}`,
+    `Score: ${qaResult.score}% (required ${COUNCIL_ARTIFACT_QA_MIN_SCORE}%)`,
+    `Revision attempts: ${attempts}/${COUNCIL_ARTIFACT_QA_MAX_REVISIONS}`,
+    consensus ? `Consensus before QA: ${consensus.average || 0}% average, ${consensus.minimum || 0}% minimum` : '',
     '',
-    '```html',
-    _fallbackProjectArtifact(stage, task, response),
-    '```',
-  ].join('\n');
+    'No sandbox preview was published because the Council artifact did not pass the hard quality gate.',
+    '',
+    'Failures:',
+    ...(qaResult.failures.length ? qaResult.failures.map((failure) => `- ${failure}`) : ['- Unknown QA failure.']),
+    qaResult.warnings.length ? '' : null,
+    ...qaResult.warnings.map((warning) => `Warning: ${warning}`),
+    '',
+    'Repair target:',
+    '- Produce a complete replacement artifact for the same task.',
+    '- Use one fenced HTML preview with the required stage marker.',
+    '- Use the real product name, domain language, workflow data, controls, package evidence, and validation evidence.',
+    '- Do not use fallback templates, generic dashboard rows, or placeholder product names.',
+    '',
+    'Council task:',
+    _cleanCouncilTask(task),
+  ].filter((line) => line !== null).join('\n');
 }
 
 async function _rememberCouncilArtifact(config, title, stage, item) {
@@ -1777,18 +2218,43 @@ async function _rememberCouncilArtifact(config, title, stage, item) {
   }
 }
 
-async function _pushCouncilIdea(task, holder, modelIdx) {
+async function _startWorkspaceLocalPreview(kind, itemId) {
+  const res = await fetch(`${API_BASE}/api/workspace/preview/${encodeURIComponent(kind)}/${encodeURIComponent(itemId)}/start`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body.detail || body.error || detail;
+    } catch (_) {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+async function _pushCouncilIdea(task, holder, modelIdx, publishOptions = {}) {
   if (!document.body.classList.contains('council-mode-active') && !_hasCouncilStageMarker(task)) return;
   if (holder?.dataset?.ideaLoopPushed === '1') return;
-
-  const response = _ensureStageArtifact((holder?.dataset?.raw || '').trim(), _councilStageFromTask(task), task);
-  if (!response) return;
-  holder.dataset.ideaLoopPushed = '1';
 
   const stage = _councilStageFromTask(task);
   const source = _councilSourceFromTask(task);
   const config = _stagePushConfig(stage);
-  const buildPaths = stage === 'final' ? _councilBuildPaths(task) : null;
+  const buildPaths = publishOptions.buildPaths || (stage === 'final' ? _councilBuildPaths(task) : null);
+  const rawResponse = (publishOptions.response || holder?.dataset?.raw || '').trim();
+  const qaResult = (stage === 'sketch' || stage === 'final')
+    ? (publishOptions.qaResult || _evaluateCouncilArtifactQuality(rawResponse, stage, task, buildPaths))
+    : null;
+  const qaAttempts = Number(publishOptions.qaAttempts || 0);
+  const blocked = Boolean(publishOptions.blocked || (qaResult && !qaResult.passed));
+  const response = blocked
+    ? _buildCouncilQaBlockedBody(task, stage, qaResult, qaAttempts, publishOptions.consensus)
+    : (stage === 'sketch' || stage === 'final' ? (qaResult?.passed ? rawResponse : '') : rawResponse);
+  if (!response) return;
+  holder.dataset.ideaLoopPushed = '1';
+
   const modelName = _models[modelIdx]?._groupName || _models[modelIdx]?.display || `Agent ${modelIdx + 1}`;
   const title = _ideaTitleFromTask(task);
   const transcript = (holder?.dataset?.councilTranscript || '').trim();
@@ -1809,13 +2275,15 @@ async function _pushCouncilIdea(task, holder, modelIdx) {
           `${modelName} consensus synthesis:`,
           response,
         ].join('\n').trim(),
-        status: config.status,
+        status: blocked ? 'blocked' : config.status,
         source: 'council',
-        tags: config.tags,
+        tags: blocked ? [...new Set([...config.tags, 'qa-blocked'])] : config.tags,
         evidence: [
           `Lifecycle stage: ${stage}.`,
           `Required gates: ${(config.gates || []).join(', ')}.`,
           buildPaths ? `Final app package path: ${buildPaths.host} (container: ${buildPaths.container}).` : '',
+          qaResult ? `Artifact QA: ${qaResult.score}% ${qaResult.passed ? 'passed' : 'blocked'} after ${qaAttempts} revision attempt${qaAttempts === 1 ? '' : 's'}.` : '',
+          qaResult?.failures?.length ? `QA failures: ${qaResult.failures.join('; ')}` : '',
           transcript ? 'Collaboration evidence: position round, critique round, and final synthesis transcript captured in this artifact.' : '',
           'Knowledge sync: Obsidian/workspace artifact created as source of truth before Brain memory sync.',
         ].filter(Boolean).join('\n'),
@@ -1827,15 +2295,23 @@ async function _pushCouncilIdea(task, holder, modelIdx) {
           build_dir_container: buildPaths?.container,
           source_kind: source.kind,
           source_id: source.id,
+          qa_result: qaResult ? _qaResultForStorage(qaResult, qaAttempts) : undefined,
         },
       }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const item = await res.json().catch(() => null);
+    if (!blocked && stage === 'final' && item?.id && buildPaths) {
+      try {
+        await _startWorkspaceLocalPreview(config.kind, item.id);
+      } catch (previewErr) {
+        console.warn('[group] Council local preview start failed:', previewErr);
+      }
+    }
     _rememberCouncilArtifact(config, title, stage, item);
     if (window.workspaceModule?.refreshAndOpenIdeaLoop) await window.workspaceModule.refreshAndOpenIdeaLoop();
     else if (window.workspaceModule?.openIdeaLoop && !document.getElementById('idea-loop-modal')) window.workspaceModule.openIdeaLoop();
-    uiModule.showToast?.(config.toast);
+    uiModule.showToast?.(blocked ? 'Council artifact QA blocked; failures are in Idea Loop' : config.toast);
   } catch (e) {
     holder.dataset.ideaLoopPushed = '0';
     console.warn('[group] Failed to push Council idea:', e);
@@ -1857,12 +2333,45 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl, op
   if (options.allowWebSearch) fd.append('allow_web_search', 'true');
   if (options.allowBash) fd.append('allow_bash', 'true');
   if (options.councilToolScope) fd.append('council_tool_scope', options.councilToolScope);
+  if (options.councilBuildDir) fd.append('council_build_dir', options.councilBuildDir);
 
   let accumulated = '';
   let _buffer = '';
   let _firstToken = true;
   const toolEvents = [];
   const bodyEl = holderEl.querySelector('.body');
+  const phaseLabel = String(options.phase || '');
+  const deferLiveRender = Boolean(options.deferRender || (options.councilMode && /Council (?:synthesis|artifact QA revision)/i.test(phaseLabel)));
+  let lastDeferredRender = 0;
+  const beginTextStream = () => {
+    if (!_firstToken) return;
+    _firstToken = false;
+    if (holderEl._spinner) { holderEl._spinner.destroy(); delete holderEl._spinner; }
+    bodyEl.innerHTML = '';
+  };
+  const renderDeferredProgress = () => {
+    const now = Date.now();
+    if (now - lastDeferredRender < 1200) return;
+    lastDeferredRender = now;
+    let status = bodyEl.querySelector('.council-deferred-stream-status');
+    if (!status) {
+      status = document.createElement('div');
+      status.className = 'council-deferred-stream-status';
+      status.style.cssText = 'font-size:12px;opacity:0.68;padding:6px 0;font-style:italic;';
+      bodyEl.prepend(status);
+    }
+    status.textContent = `${phaseLabel || 'Council build'} in progress - ${accumulated.length.toLocaleString()} chars captured`;
+  };
+  const renderAccumulated = () => {
+    if (deferLiveRender) {
+      renderDeferredProgress();
+      return;
+    }
+    bodyEl.innerHTML = markdownModule.processWithThinking(
+      markdownModule.squashOutsideCode(accumulated)
+    );
+    uiModule.scrollHistory();
+  };
 
   try {
     const res = await fetch(`${API_BASE}/api/chat_stream`, {
@@ -1896,16 +2405,13 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl, op
 
           // Text delta (OpenAI format)
           if (json.choices?.[0]?.delta?.content) {
-            if (_firstToken) { _firstToken = false; if (holderEl._spinner) { holderEl._spinner.destroy(); delete holderEl._spinner; } bodyEl.innerHTML = ''; }
+            beginTextStream();
             accumulated += json.choices[0].delta.content;
-            bodyEl.innerHTML = markdownModule.processWithThinking(
-              markdownModule.squashOutsideCode(accumulated)
-            );
-            uiModule.scrollHistory();
+            renderAccumulated();
           }
           // Text delta (Odysseus format)
           else if (json.delta !== undefined) {
-            if (_firstToken) { _firstToken = false; if (holderEl._spinner) { holderEl._spinner.destroy(); delete holderEl._spinner; } bodyEl.innerHTML = ''; }
+            beginTextStream();
             // Handle thinking tags from vLLM
             let _d = json.delta;
             if (json.thinking) {
@@ -1914,10 +2420,7 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl, op
               _d = '</think>' + _d;
             }
             accumulated += _d;
-            bodyEl.innerHTML = markdownModule.processWithThinking(
-              markdownModule.squashOutsideCode(accumulated)
-            );
-            uiModule.scrollHistory();
+            renderAccumulated();
           }
           // Agent tool events
           else if (json.type === 'tool_start') {
@@ -1971,22 +2474,27 @@ async function _streamToHolder(modelIdx, sessionId, msg, holderEl, abortCtrl, op
   if (!accumulated && options.councilMode && options.pushTask && /synthesis/i.test(String(options.phase || ''))) {
     const stage = _councilStageFromTask(options.pushTask || msg);
     if (stage === 'sketch' || stage === 'final') {
-      const fallbackReason = stage === 'final'
-        ? 'The upstream synthesis stream returned no visible text, so Odysseus generated a local final review fallback from the Council handoff.'
-        : 'The upstream synthesis stream returned no visible text, so Odysseus generated a local prototype fallback from the Council handoff.';
       accumulated = [
-        '## Council synthesis fallback',
-        fallbackReason,
-        '',
-        _ensureStageArtifact('', stage, options.pushTask || msg),
+        '## Council synthesis missing',
+        'The upstream synthesis stream returned no visible artifact candidate.',
+        'Artifact QA will request a Council repair pass or block this stage without publishing a fallback preview.',
       ].join('\n');
     }
   }
 
   // Final render with footer
   if (accumulated) {
+    const renderedAccumulated = deferLiveRender && accumulated.length > 9000
+      ? [
+        accumulated.slice(0, 6000),
+        '',
+        `[...Council ${phaseLabel || 'build'} output captured; full ${accumulated.length.toLocaleString()} characters retained for QA and Idea Loop artifact storage...]`,
+        '',
+        accumulated.slice(-1800),
+      ].join('\n')
+      : accumulated;
     bodyEl.innerHTML = markdownModule.processWithThinking(
-      markdownModule.squashOutsideCode(accumulated)
+      markdownModule.squashOutsideCode(renderedAccumulated)
     );
     if (window.hljs) holderEl.querySelectorAll('pre code').forEach(b => window.hljs.highlightElement(b));
     if (markdownModule.renderMermaid) markdownModule.renderMermaid(holderEl);

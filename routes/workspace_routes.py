@@ -11,22 +11,35 @@ from datetime import datetime, timezone
 import json
 import os
 import re
+import shutil
+import signal
+import socket
+import subprocess
+import sys
 import threading
+import time
 from typing import Any, Dict, List, Optional
 import uuid
+import urllib.error
+import urllib.request
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from core.atomic_io import atomic_write_json
-from core.constants import DATA_DIR
+from core.constants import BASE_DIR, DATA_DIR
 from src.auth_helpers import effective_user, require_user
 
 
 WORKSPACE_FILE = os.path.join(DATA_DIR, "workspace.json")
 _WORKSPACE_LOCK = threading.RLock()
+_PREVIEW_LOCK = threading.RLock()
+_PREVIEW_PROCS: Dict[str, Dict[str, Any]] = {}
 SINGLE_USER_KEY = "__single__"
+COUNCIL_BUILD_ROOT = os.path.join(DATA_DIR, "council-builds")
+PREVIEW_HOST = "127.0.0.1"
+PREVIEW_START_TIMEOUT_SECONDS = 12
 
 DEFAULT_WORKSPACE = {
     "requests": [],
@@ -161,6 +174,346 @@ def _extract_html_artifact(value: str, kind: str) -> str:
     return ""
 
 
+def _preview_key(user_key: str, kind: str, item_id: str) -> str:
+    return f"{user_key}:{kind}:{item_id}"
+
+
+def _set_item_preview(user_key: str, kind: str, item_id: str, preview: Dict[str, Any]) -> None:
+    with _WORKSPACE_LOCK:
+        data = _load_all()
+        workspace = _get_workspace(data, user_key)
+        collection = _collection(workspace, kind)
+        for item in collection:
+            if item.get("id") == item_id:
+                links = item.setdefault("links", {})
+                if not isinstance(links, dict):
+                    links = {}
+                    item["links"] = links
+                links["preview"] = preview
+                item["updated_at"] = _now()
+                _save_all(data)
+                return
+
+
+def _get_item_preview(user_key: str, kind: str, item_id: str) -> Dict[str, Any]:
+    with _WORKSPACE_LOCK:
+        data = _load_all()
+        workspace = _get_workspace(data, user_key)
+        collection = _collection(workspace, kind)
+        item = next((entry for entry in collection if entry.get("id") == item_id), None)
+    if not item:
+        raise HTTPException(404, "Workspace item not found")
+    preview = item.get("links", {}).get("preview") if isinstance(item.get("links"), dict) else None
+    if not isinstance(preview, dict) or preview.get("status") != "running":
+        raise HTTPException(404, "Workspace item has no running local preview")
+    return preview
+
+
+def _resolve_council_build_dir(raw: Any) -> str:
+    value = str(raw or "").strip().replace("\\", "/")
+    if not value:
+        raise HTTPException(400, "Workspace item has no Council build directory")
+    if value.startswith("data/council-builds/"):
+        candidate = os.path.join(COUNCIL_BUILD_ROOT, value.split("data/council-builds/", 1)[1])
+    elif os.path.isabs(value):
+        candidate = value
+    else:
+        candidate = os.path.join(BASE_DIR, value)
+
+    root = os.path.realpath(COUNCIL_BUILD_ROOT)
+    resolved = os.path.realpath(candidate)
+    try:
+        if os.path.commonpath([root, resolved]) != root:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(400, "Preview can only run from data/council-builds")
+    if not os.path.isdir(resolved):
+        raise HTTPException(400, "Council build directory does not exist")
+    return resolved
+
+
+def _find_preview_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((PREVIEW_HOST, 0))
+        return int(sock.getsockname()[1])
+
+
+def _read_json_file(path: str) -> Optional[Dict[str, Any]]:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _command_display(command: List[str]) -> str:
+    try:
+        return subprocess.list2cmdline(command)
+    except Exception:
+        return " ".join(command)
+
+
+def _node_runner() -> Optional[str]:
+    return shutil.which("npm.cmd" if os.name == "nt" else "npm") or shutil.which("npm")
+
+
+def _package_uses(package: Dict[str, Any], needle: str) -> bool:
+    needle = needle.lower()
+    scripts = package.get("scripts") if isinstance(package.get("scripts"), dict) else {}
+    deps = package.get("dependencies") if isinstance(package.get("dependencies"), dict) else {}
+    dev_deps = package.get("devDependencies") if isinstance(package.get("devDependencies"), dict) else {}
+    haystack = "\n".join([*(str(v) for v in scripts.values()), *deps.keys(), *dev_deps.keys()]).lower()
+    return needle in haystack
+
+
+def _infer_preview_command(build_dir: str, port: int) -> Dict[str, Any]:
+    package_path = os.path.join(build_dir, "package.json")
+    package = _read_json_file(package_path) if os.path.exists(package_path) else None
+    if package:
+        npm = _node_runner()
+        if not npm:
+            raise HTTPException(400, "Node/npm is not available for this package preview")
+        scripts = package.get("scripts") if isinstance(package.get("scripts"), dict) else {}
+        command: Optional[List[str]] = None
+        if "dev" in scripts:
+            if _package_uses(package, "next"):
+                command = [npm, "run", "dev", "--", "-H", PREVIEW_HOST, "-p", str(port)]
+            elif _package_uses(package, "vite") or _package_uses(package, "astro") or _package_uses(package, "webpack"):
+                command = [npm, "run", "dev", "--", "--host", PREVIEW_HOST, "--port", str(port)]
+            else:
+                command = [npm, "run", "dev"]
+        elif "start" in scripts:
+            if _package_uses(package, "next"):
+                command = [npm, "run", "start", "--", "-H", PREVIEW_HOST, "-p", str(port)]
+            elif _package_uses(package, "vite"):
+                command = [npm, "run", "start", "--", "--host", PREVIEW_HOST, "--port", str(port)]
+            else:
+                command = [npm, "run", "start"]
+        elif "serve" in scripts:
+            command = [npm, "run", "serve", "--", "--host", PREVIEW_HOST, "--port", str(port)]
+        if command:
+            return {
+                "command": command,
+                "url": f"http://{PREVIEW_HOST}:{port}/",
+                "runtime": "node-package",
+            }
+
+    for relative in ("index.html", os.path.join("public", "index.html"), os.path.join("dist", "index.html"), os.path.join("build", "index.html")):
+        html_path = os.path.join(build_dir, relative)
+        if os.path.exists(html_path):
+            directory = os.path.dirname(html_path)
+            return {
+                "command": [sys.executable, "-m", "http.server", str(port), "--bind", PREVIEW_HOST, "--directory", directory],
+                "url": f"http://{PREVIEW_HOST}:{port}/",
+                "runtime": "static-html",
+            }
+
+    for module_name in ("app", "main", "server"):
+        py_path = os.path.join(build_dir, f"{module_name}.py")
+        if not os.path.exists(py_path):
+            continue
+        try:
+            contents = open(py_path, "r", encoding="utf-8").read()
+        except OSError:
+            contents = ""
+        if "FastAPI(" in contents:
+            return {
+                "command": [sys.executable, "-m", "uvicorn", f"{module_name}:app", "--host", PREVIEW_HOST, "--port", str(port)],
+                "url": f"http://{PREVIEW_HOST}:{port}/",
+                "runtime": "python-fastapi",
+            }
+        if "Flask(" in contents:
+            return {
+                "command": [sys.executable, "-m", "flask", "--app", module_name, "run", "--host", PREVIEW_HOST, "--port", str(port)],
+                "url": f"http://{PREVIEW_HOST}:{port}/",
+                "runtime": "python-flask",
+            }
+
+    raise HTTPException(400, "No supported local preview entrypoint found in the Council build directory")
+
+
+def _preview_log_tail(log_path: str, limit: int = 2400) -> str:
+    try:
+        with open(log_path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - limit))
+            return handle.read().decode("utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def _popen_preview(command: List[str], build_dir: str, port: int, log_path: str) -> subprocess.Popen:
+    env = os.environ.copy()
+    env.update({
+        "PORT": str(port),
+        "HOST": PREVIEW_HOST,
+        "HOSTNAME": PREVIEW_HOST,
+        "BROWSER": "none",
+        "CI": "1",
+        "NODE_ENV": env.get("NODE_ENV", "development"),
+    })
+    kwargs: Dict[str, Any] = {
+        "cwd": build_dir,
+        "stdin": subprocess.DEVNULL,
+        "env": env,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+    else:
+        kwargs["start_new_session"] = True
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    log_handle = open(log_path, "ab", buffering=0)
+    try:
+        return subprocess.Popen(command, stdout=log_handle, stderr=subprocess.STDOUT, **kwargs)
+    finally:
+        log_handle.close()
+
+
+def _terminate_preview_proc(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            proc.terminate()
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+    except Exception:
+        proc.terminate()
+    try:
+        proc.wait(timeout=4)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def _url_is_ready(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=1) as response:
+            return response.status < 500
+    except urllib.error.HTTPError as exc:
+        return exc.code < 500
+    except Exception:
+        return False
+
+
+def _wait_for_preview(url: str, proc: subprocess.Popen, log_path: str) -> Optional[str]:
+    deadline = time.time() + PREVIEW_START_TIMEOUT_SECONDS
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            return _preview_log_tail(log_path) or f"Preview process exited with code {proc.returncode}"
+        if _url_is_ready(url):
+            return None
+        time.sleep(0.35)
+    return _preview_log_tail(log_path) or "Preview server did not respond before the startup timeout"
+
+
+def _start_local_preview(user_key: str, kind: str, item_id: str, item: Dict[str, Any]) -> Dict[str, Any]:
+    links = item.get("links") if isinstance(item.get("links"), dict) else {}
+    build_dir = _resolve_council_build_dir(links.get("build_dir") or links.get("build_dir_container"))
+    key = _preview_key(user_key, kind, item_id)
+    with _PREVIEW_LOCK:
+        existing = _PREVIEW_PROCS.get(key)
+        if existing and existing.get("proc") and existing["proc"].poll() is None:
+            return {
+                key: value
+                for key, value in existing.items()
+                if key != "proc"
+            }
+        if existing and existing.get("proc"):
+            _terminate_preview_proc(existing["proc"])
+        port = _find_preview_port()
+        spec = _infer_preview_command(build_dir, port)
+        log_path = os.path.join(DATA_DIR, "workspace-previews", f"{item_id}.log")
+        command = spec["command"]
+        proc = _popen_preview(command, build_dir, port, log_path)
+        internal_url = spec["url"]
+        public_url = f"/api/workspace/preview/{kind}/{item_id}/proxy/"
+        error = _wait_for_preview(internal_url, proc, log_path)
+        if error:
+            _terminate_preview_proc(proc)
+            preview = {
+                "status": "failed",
+                "url": "",
+                "internal_url": internal_url,
+                "error": error,
+                "runtime": spec["runtime"],
+                "command": _command_display(command),
+                "port": port,
+                "log_path": os.path.relpath(log_path, BASE_DIR).replace("\\", "/"),
+                "updated_at": _now(),
+            }
+            _set_item_preview(user_key, kind, item_id, preview)
+            raise HTTPException(400, error)
+        preview = {
+            "status": "running",
+            "url": public_url,
+            "internal_url": internal_url,
+            "runtime": spec["runtime"],
+            "command": _command_display(command),
+            "port": port,
+            "pid": proc.pid,
+            "build_dir": os.path.relpath(build_dir, BASE_DIR).replace("\\", "/"),
+            "log_path": os.path.relpath(log_path, BASE_DIR).replace("\\", "/"),
+            "started_at": _now(),
+        }
+        _PREVIEW_PROCS[key] = {**preview, "proc": proc}
+        _set_item_preview(user_key, kind, item_id, preview)
+        return preview
+
+
+def _stop_local_preview(user_key: str, kind: str, item_id: str) -> Dict[str, Any]:
+    key = _preview_key(user_key, kind, item_id)
+    with _PREVIEW_LOCK:
+        existing = _PREVIEW_PROCS.pop(key, None)
+        if existing and existing.get("proc"):
+            _terminate_preview_proc(existing["proc"])
+    preview = {
+        "status": "stopped",
+        "url": "",
+        "updated_at": _now(),
+    }
+    _set_item_preview(user_key, kind, item_id, preview)
+    return preview
+
+
+async def _proxy_local_preview_request(preview: Dict[str, Any], path: str, request: Request) -> Response:
+    port = int(preview.get("port") or 0)
+    if port <= 0:
+        raise HTTPException(404, "Local preview has no bound port")
+    path = path or ""
+    target = f"http://{PREVIEW_HOST}:{port}/{path}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    body = await request.body()
+    headers = {
+        name: value
+        for name, value in request.headers.items()
+        if name.lower() in {"accept", "content-type", "user-agent"}
+    }
+    proxy_request = urllib.request.Request(
+        target,
+        data=body if body else None,
+        method=request.method,
+        headers=headers,
+    )
+    try:
+        with urllib.request.urlopen(proxy_request, timeout=15) as upstream:
+            content = upstream.read()
+            status = upstream.status
+            content_type = upstream.headers.get("content-type")
+    except urllib.error.HTTPError as exc:
+        content = exc.read()
+        status = exc.code
+        content_type = exc.headers.get("content-type")
+    except Exception as exc:
+        raise HTTPException(502, f"Local preview proxy failed: {exc}")
+    return Response(content=content, status_code=status, media_type=content_type)
+
+
 def setup_workspace_routes():
     router = APIRouter(prefix="/api/workspace", tags=["workspace"])
 
@@ -200,6 +553,40 @@ def setup_workspace_routes():
                 ),
             },
         )
+
+    @router.post("/preview/{kind}/{item_id}/start")
+    async def start_workspace_preview(kind: str, item_id: str, request: Request):
+        require_user(request)
+        user_key = _user_key(request)
+        with _WORKSPACE_LOCK:
+            data = _load_all()
+            workspace = _get_workspace(data, user_key)
+            collection = _collection(workspace, kind)
+            item = deepcopy(next((entry for entry in collection if entry.get("id") == item_id), None))
+        if not item:
+            raise HTTPException(404, "Workspace item not found")
+        if item.get("status") == "blocked" or "qa-blocked" in (item.get("tags") or []):
+            raise HTTPException(400, "Blocked QA artifacts cannot be previewed")
+        return _start_local_preview(user_key, kind, item_id, item)
+
+    @router.post("/preview/{kind}/{item_id}/stop")
+    async def stop_workspace_preview(kind: str, item_id: str, request: Request):
+        require_user(request)
+        user_key = _user_key(request)
+        with _WORKSPACE_LOCK:
+            data = _load_all()
+            workspace = _get_workspace(data, user_key)
+            collection = _collection(workspace, kind)
+            item = next((entry for entry in collection if entry.get("id") == item_id), None)
+        if not item:
+            raise HTTPException(404, "Workspace item not found")
+        return _stop_local_preview(user_key, kind, item_id)
+
+    @router.api_route("/preview/{kind}/{item_id}/proxy/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    async def proxy_workspace_preview(kind: str, item_id: str, path: str, request: Request):
+        require_user(request)
+        preview = _get_item_preview(_user_key(request), kind, item_id)
+        return await _proxy_local_preview_request(preview, path, request)
 
     @router.post("/{kind}")
     async def create_workspace_item(kind: str, item: WorkspaceItem, request: Request):

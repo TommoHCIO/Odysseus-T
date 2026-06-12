@@ -12,6 +12,7 @@ import collections
 import json
 import logging
 import os
+import re
 import sys
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
@@ -539,11 +540,97 @@ async def _direct_fallback(
 # Dispatcher
 # ---------------------------------------------------------------------------
 
+def _resolve_tool_path(path: str) -> str:
+    expanded = os.path.expanduser(str(path or "").strip())
+    if not os.path.isabs(expanded):
+        expanded = os.path.join(os.getcwd(), expanded)
+    return os.path.abspath(expanded)
+
+
+def _is_path_within(child: str, parent: str) -> bool:
+    try:
+        return os.path.commonpath([_resolve_tool_path(child), _resolve_tool_path(parent)]) == _resolve_tool_path(parent)
+    except Exception:
+        return False
+
+
+def _council_build_constraint_error(tool: str, content: str, tool_constraints: Optional[Dict]) -> Optional[Tuple[str, Dict]]:
+    build_dir = (tool_constraints or {}).get("council_build_dir")
+    if not build_dir or tool not in {"write_file", "read_file", "bash", "python"}:
+        return None
+
+    root = _resolve_tool_path(build_dir)
+    normalized_build_dir = str(build_dir).replace("\\", "/").strip("/")
+
+    if tool in {"write_file", "read_file"}:
+        target = content.split("\n", 1)[0].strip()
+        if not target or not _is_path_within(target, root):
+            return (
+                f"{tool}: BLOCKED",
+                {
+                    "error": (
+                        f"Council build scope only allows {tool} inside {normalized_build_dir}. "
+                        f"Requested path: {target or '[empty]'}"
+                    ),
+                    "exit_code": 1,
+                },
+            )
+        return None
+
+    command = str(content or "")
+    normalized_command = command.replace("\\", "/")
+    lower = normalized_command.lower()
+    forbidden = [
+        "/tmp",
+        "/app/data",
+        "c:/users/",
+        "/users/",
+        "desktop",
+        "docker-compose up",
+        "docker compose up",
+        "docker-compose down",
+        "docker compose down",
+        "npm install",
+        "npm start",
+        "npm run dev",
+        "npm run build",
+        "pnpm install",
+        "pnpm dev",
+        "pnpm build",
+        "yarn install",
+        "yarn dev",
+        "yarn build",
+        "pip install",
+        "python -m pip install",
+        "uvicorn ",
+        "flask run",
+        "expo start",
+        "npx expo start",
+    ]
+    root_file_write = re.search(r"(^|[\s\"'`>])resilience-mesh\.html\b", lower) and normalized_build_dir not in lower
+    mutating_without_build_dir = (
+        normalized_build_dir not in lower
+        and re.search(r"(?:^|[\s;&|])(?:cat\s*>|echo\s+.*>|copy\b|move\b|mkdir\b|md\b|new-item\b|set-content\b|out-file\b)", lower)
+    )
+    if any(token in lower for token in forbidden) or root_file_write or mutating_without_build_dir:
+        return (
+            f"{tool}: BLOCKED",
+            {
+                "error": (
+                    f"Council build scope blocked this {tool} command. "
+                    f"Use write_file/read_file paths under {normalized_build_dir} and validate from that directory only."
+                ),
+                "exit_code": 1,
+            },
+        )
+    return None
+
 async def execute_tool_block(
     block: Any,
     session_id: Optional[str] = None,
     disabled_tools: Optional[set] = None,
     owner: Optional[str] = None,
+    tool_constraints: Optional[Dict] = None,
     progress_cb: Optional[Callable[[Dict], Awaitable[None]]] = None,
 ) -> Tuple[str, Dict]:
     """Execute a single tool block. Returns (description, result_dict).
@@ -622,6 +709,12 @@ async def execute_tool_block(
             "exit_code": 1,
         }
         logger.warning("Public tool policy blocked owner=%r tool=%s", owner, tool)
+        return desc, result
+
+    council_constraint = _council_build_constraint_error(tool, content, tool_constraints)
+    if council_constraint:
+        desc, result = council_constraint
+        logger.warning("Council build tool constraint blocked tool=%s", tool)
         return desc, result
 
     # Background execution: a `bash` block whose first line is the `#!bg`

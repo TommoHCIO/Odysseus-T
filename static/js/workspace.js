@@ -57,6 +57,7 @@ const NEXT_COUNCIL_STEP = {
       'Include the product roles that materially contributed: strategy, architecture, UX, frontend, backend/services, DevOps, QA, research, and documentation.',
       'Return a prototype-level sketch the user can review.',
       'Include exactly one fenced ```html code block containing a runnable local prototype preview for Idea Loop only. For web or dashboard projects this should be a real interactive screen; for mobile, desktop, API, CLI, agent, game, automation, SaaS, or other full-stack projects it should be a local review harness that demonstrates the workflow, states, data model, API/command contract, and key risks.',
+      'Important limitation: the local sandbox is an HTML review harness, not a native runtime for mobile apps, desktop apps, API servers, CLIs, Docker stacks, or full backend services.',
       'Do not flatten the actual deliverable into HTML. Outside the preview, include the intended project type, repository/file tree, primary source files or patch plan, services/modules, APIs or commands, storage model, local run commands, and test commands.',
       'Keep the prototype lightweight but visually credible; no external network assets.',
       'After the code block, list the primary screens, data flow, key interactions, backend/services shape, storage model, research findings, QA checks, documentation needs, and open questions.',
@@ -73,7 +74,9 @@ const NEXT_COUNCIL_STEP = {
       'Start with a "Council deliberation" section where the agents review the sketch, debate build risks, choose the final architecture, and name expected local execution evidence.',
       'Include a UI/UX validation gate: screenshot review, usability critique, accessibility notes, polish improvements applied or deferred, and remaining design risks.',
       'Return a complete final product package the user can review as ready to run or ship for the intended target: website, mobile app, API, desktop software, AI agent, SaaS platform, CLI tool, game, automation system, extension, service, or multi-component system.',
-      'Include exactly one fenced ```html code block containing a runnable local review harness for Idea Loop only. For web apps this may be the runnable browser product; for non-web/full-stack projects it must demonstrate the workflow, states, API/data/command contracts, persistence assumptions, local run commands, tests, and documentation without pretending the whole deliverable is HTML.',
+      'Create the real runnable package first. If the package can be started locally, include exact localhost preview/run evidence so Odysseus can launch it from the Council build directory after QA.',
+      'If the real target cannot be previewed directly in a browser, include exactly one fenced ```html code block containing a runnable local review harness for Idea Loop only. For web apps this may be the runnable browser product; for non-web/full-stack projects it must demonstrate the workflow, states, API/data/command contracts, persistence assumptions, local run commands, tests, and documentation without pretending the whole deliverable is HTML.',
+      'Important limitation: the local HTML sandbox is a review harness, not a native runtime for mobile apps, desktop apps, API servers, CLIs, Docker stacks, or full backend services. The real non-web deliverable must be created and documented outside the preview, and complete local packages can be reviewed through a constrained localhost preview runner.',
       'Outside the preview, create and document the real implementation package: repository/file tree, key source files written, API schemas or CLI commands, service topology, storage/migration notes, environment variables, local run commands, test commands, Docker/deployment path, and operational docs.',
       'Use available build tools in the final synthesis pass to write the real app files into the provided Council build directory, then run at least one local validation command. If an external platform build is impossible locally, still create the source project and mark only that external build step as blocked.',
       'If the request is a fuel price application, the app must run locally in a browser without external dependencies and include working controls for fuel type, location, currency, efficiency, trip distance, sorting/filtering, and total trip cost.',
@@ -552,6 +555,79 @@ function _renderHtmlArtifact(html, kind, item) {
     </section>`;
 }
 
+function _previewFromItem(item) {
+  const preview = item?.links?.preview;
+  return preview && typeof preview === 'object' ? preview : null;
+}
+
+function _renderLivePreview(preview) {
+  if (!preview || preview.status !== 'running' || !preview.url) return '';
+  return `
+    <section class="idea-loop-artifact-preview idea-loop-live-preview">
+      <div class="idea-loop-artifact-head">
+        <strong>Live localhost preview</strong>
+        <span>${_escape(preview.runtime || 'local app')}</span>
+      </div>
+      <iframe title="Live localhost preview" sandbox="allow-scripts allow-forms allow-same-origin allow-popups" src="${_escape(preview.url)}"></iframe>
+      <button type="button" class="idea-loop-artifact-open" aria-label="Open live localhost preview fullscreen" title="Open fullscreen"></button>
+    </section>`;
+}
+
+function _qaResultFromItem(item) {
+  const qa = item?.links?.qa_result;
+  return qa && typeof qa === 'object' ? qa : null;
+}
+
+function _renderQaBlocked(qa) {
+  if (!qa) return '';
+  const failures = Array.isArray(qa.failures) && qa.failures.length
+    ? qa.failures.slice(0, 6).map((failure) => `<li>${_escape(failure)}</li>`).join('')
+    : '<li>Artifact failed the Council quality gate.</li>';
+  const warnings = Array.isArray(qa.warnings) && qa.warnings.length
+    ? `<div class="idea-loop-qa-warnings">${qa.warnings.slice(0, 3).map((warning) => `<span>${_escape(warning)}</span>`).join('')}</div>`
+    : '';
+  return `
+    <section class="idea-loop-qa-blocked" aria-label="Council artifact QA failures">
+      <div class="idea-loop-qa-blocked-head">
+        <strong>QA blocked</strong>
+        <span>${_escape(qa.score ?? 0)}% after ${_escape(qa.attempts ?? 0)} revision${Number(qa.attempts || 0) === 1 ? '' : 's'}</span>
+      </div>
+      <ul>${failures}</ul>
+      ${warnings}
+    </section>`;
+}
+
+function _renderPackageReview(qa, item, preview) {
+  const buildDir = item?.links?.build_dir || item?.links?.build_dir_container || '';
+  const isPackageOnly = Boolean(qa?.checks?.packageReviewOnly);
+  if (!isPackageOnly && !buildDir && !preview) return '';
+  const failed = preview?.status === 'failed';
+  const running = preview?.status === 'running' && preview?.url;
+  const displayUrl = preview?.internal_url || preview?.url || '';
+  const score = qa?.score != null ? `${qa.score}% QA` : 'package review';
+  const details = [
+    buildDir ? `Build: ${buildDir}` : '',
+    preview?.command ? `Run: ${preview.command}` : '',
+    failed && preview?.error ? `Preview failed: ${preview.error}` : '',
+  ].filter(Boolean);
+  const startButton = !running && buildDir
+    ? `<button type="button" class="doclib-card-action-btn" data-action="start-preview">Start localhost preview</button>`
+    : '';
+  const stopButton = running
+    ? `<button type="button" class="doclib-card-action-btn" data-action="stop-preview">Stop preview</button>`
+    : '';
+  return `
+    <section class="idea-loop-package-review ${failed ? 'is-failed' : ''}">
+      <div class="idea-loop-package-review-head">
+        <strong>${running ? 'Local app running' : 'Package review'}</strong>
+        <span>${_escape(score)}</span>
+      </div>
+      <p>${running ? `Preview URL: ${_escape(displayUrl)}` : 'This final build is reviewed as a real project package. The HTML sandbox is optional when the app can run locally.'}</p>
+      ${details.length ? `<ul>${details.slice(0, 4).map((line) => `<li>${_escape(line)}</li>`).join('')}</ul>` : ''}
+      ${startButton || stopButton ? `<div class="idea-loop-package-actions">${startButton}${stopButton}</div>` : ''}
+    </section>`;
+}
+
 function _closeArtifactFullscreen() {
   const overlay = document.getElementById('idea-loop-artifact-fullscreen');
   if (!overlay) return;
@@ -625,7 +701,11 @@ function _renderLoopCard(item, fallbackKind) {
   const fullBody = _stripThinking(item.body || item.evidence || 'No details yet.');
   const summary = _cardSummary(item.body || item.evidence || 'No details yet.');
   const hasMore = fullBody.length > summary.length;
-  const htmlArtifact = kind === 'requests' ? '' : _extractHtmlArtifact(fullBody, kind);
+  const qaResult = _qaResultFromItem(item);
+  const qaBlocked = Boolean(qaResult && ((item.tags || []).includes('qa-blocked') || item.status === 'blocked'));
+  const preview = _previewFromItem(item);
+  const livePreview = !qaBlocked ? _renderLivePreview(preview) : '';
+  const htmlArtifact = kind === 'requests' || qaBlocked || livePreview ? '' : _extractHtmlArtifact(fullBody, kind);
   return `
     <article class="doclib-card workspace-card idea-loop-card" data-id="${_escape(item.id)}" data-kind="${_escape(kind)}">
       <div class="workspace-card-head idea-loop-card-head">
@@ -633,6 +713,9 @@ function _renderLoopCard(item, fallbackKind) {
         <span class="idea-loop-status-pill">${_escape(item.status || 'open')}</span>
       </div>
       <div class="idea-loop-card-body">${_escape(summary)}</div>
+      ${qaBlocked ? _renderQaBlocked(qaResult) : ''}
+      ${!qaBlocked ? _renderPackageReview(qaResult, item, preview) : ''}
+      ${livePreview}
       ${_renderHtmlArtifact(htmlArtifact, kind, item)}
       ${hasMore ? `<details class="idea-loop-card-full"><summary>Read full council output</summary><pre>${_escape(fullBody)}</pre></details>` : ''}
       <div class="idea-loop-card-meta">
@@ -787,6 +870,12 @@ function _wireIdeaLoop() {
     card.querySelector('[data-action="send-council"]')?.addEventListener('click', async () => {
       await _sendCardToCouncil(kind, id);
     });
+    card.querySelector('[data-action="start-preview"]')?.addEventListener('click', async () => {
+      await _startLocalPreview(kind, id);
+    });
+    card.querySelector('[data-action="stop-preview"]')?.addEventListener('click', async () => {
+      await _stopLocalPreview(kind, id);
+    });
     card.querySelector('[data-action="evidence"]')?.addEventListener('click', async () => {
       const text = window.prompt('Verification or execution evidence');
       if (text == null) return;
@@ -831,6 +920,27 @@ async function _sendCardToCouncil(kind, id) {
     _renderOpenSurfaces();
   } catch (err) {
     uiModule.showToast?.(`Council handoff failed: ${err.message}`);
+  }
+}
+
+async function _startLocalPreview(kind, id) {
+  try {
+    await _request(`/api/workspace/preview/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/start`, { method: 'POST' });
+    uiModule.showToast?.('Local preview started');
+    await _load();
+  } catch (err) {
+    uiModule.showToast?.(`Local preview failed: ${err.message}`);
+    await _load();
+  }
+}
+
+async function _stopLocalPreview(kind, id) {
+  try {
+    await _request(`/api/workspace/preview/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/stop`, { method: 'POST' });
+    uiModule.showToast?.('Local preview stopped');
+    await _load();
+  } catch (err) {
+    uiModule.showToast?.(`Local preview stop failed: ${err.message}`);
   }
 }
 
