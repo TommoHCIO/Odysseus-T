@@ -310,6 +310,22 @@ def _fetch_contacts(force=False):
         return _contact_cache["contacts"]
 
 
+def _contacts_summary() -> Dict:
+    cfg = _get_carddav_config()
+    cached = list(_contact_cache.get("contacts") or [])
+    if _carddav_configured(cfg):
+        return {
+            "count": len(cached),
+            "carddav_configured": True,
+            "cached": bool(_contact_cache.get("fetched_at")),
+        }
+    return {
+        "count": len(_load_local_contacts()),
+        "carddav_configured": False,
+        "cached": True,
+    }
+
+
 def _resolve_resource_url(uid: str) -> str:
     """Map a contact UID to its real CardDAV resource URL. Uses the href
     captured during fetch when available (handles contacts whose filename
@@ -654,6 +670,11 @@ def setup_contacts_routes():
         """List all contacts."""
         contacts = _fetch_contacts()
         return {"contacts": contacts, "count": len(contacts)}
+
+    @router.get("/summary")
+    async def contacts_summary(_admin: str = Depends(require_admin)):
+        """Return fast Contacts rail metadata without fetching full CardDAV rows."""
+        return _contacts_summary()
 
     @router.get("/search")
     async def search_contacts(q: str = Query(""), _admin: str = Depends(require_admin)):

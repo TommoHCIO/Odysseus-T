@@ -307,6 +307,15 @@ def setup_chat_routes(
         use_research = form_data.get("use_research")
         time_filter = form_data.get("time_filter")
         preset_id = form_data.get("preset_id")
+        voice_transcript_source = None
+        voice_transcript_source_raw = form_data.get("voice_transcript_source")
+        if isinstance(voice_transcript_source_raw, str) and voice_transcript_source_raw.strip():
+            try:
+                parsed_voice_source = json.loads(voice_transcript_source_raw)
+                if isinstance(parsed_voice_source, dict):
+                    voice_transcript_source = parsed_voice_source
+            except json.JSONDecodeError:
+                voice_transcript_source = None
         allow_bash = form_data.get("allow_bash")
         allow_web_search = form_data.get("allow_web_search")
         use_rag = form_data.get("use_rag")
@@ -433,6 +442,7 @@ def setup_chat_routes(
             # index would be useless / unwanted noise.
             agent_mode=(chat_mode == "agent"),
             council_mode=council_mode,
+            voice_transcript_source=voice_transcript_source,
         )
 
         _research_flags = {"do": do_research}  # Mutable container for generator scope

@@ -4,6 +4,8 @@ from src.mcp_marketplace_catalog import (
     CatalogEntry,
     CatalogSource,
     default_catalog_sources,
+    filter_catalog_entries,
+    marketplace_catalog_facets,
     load_catalog_cache,
     normalize_catalog_entries,
     refresh_catalog_cache,
@@ -150,3 +152,41 @@ def test_load_catalog_cache_refreshes_stale_single_source_cache(monkeypatch, tmp
 
     assert len(cache["sources"]) >= 2
     assert {entry["id"] for entry in cache["entries"]} >= {"filesystem", "sqlite", "playwright", "github"}
+
+
+def test_filter_catalog_entries_searches_and_facets_runtime_source_category():
+    entries = [
+        {
+            "id": "filesystem",
+            "name": "Filesystem MCP",
+            "description": "Expose a selected root",
+            "publisher": "Model Context Protocol",
+            "version": "latest",
+            "runtime": "npm",
+            "source_id": "odysseus-curated",
+            "categories": ["Files"],
+            "tags": ["local", "storage"],
+        },
+        {
+            "id": "sqlite",
+            "name": "SQLite MCP",
+            "description": "Inspect a database",
+            "publisher": "Curated",
+            "version": "latest",
+            "runtime": "python_uv",
+            "source_id": "odysseus-community-curated",
+            "categories": ["Database"],
+            "tags": ["sql"],
+        },
+    ]
+
+    filtered = filter_catalog_entries(entries, query="root", runtime="npm", source="odysseus-curated", category="Files")
+    facets = marketplace_catalog_facets(entries)
+
+    assert [entry["id"] for entry in filtered] == ["filesystem"]
+    assert facets["runtimes"] == [{"value": "npm", "count": 1}, {"value": "python_uv", "count": 1}]
+    assert facets["sources"] == [
+        {"value": "odysseus-community-curated", "count": 1},
+        {"value": "odysseus-curated", "count": 1},
+    ]
+    assert facets["categories"] == [{"value": "Database", "count": 1}, {"value": "Files", "count": 1}]

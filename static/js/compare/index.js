@@ -45,6 +45,47 @@ var escapeHtml = uiModule.esc;
 /** Slot label: letters (A, B) in parallel, numbers (1, 2) in sequential */
 function _slotChar(i) { return state._parallel ? String.fromCharCode(65 + i) : String(i + 1); }
 
+const ORACLE_COMPARE_RUN_MESSAGES = {
+  started: 'A comparison run started.',
+  completed: 'The comparison run finished.',
+  failed: 'The comparison run failed.',
+  stopped: 'The comparison run stopped.',
+};
+
+function _requestOracleCompareRunNarration(eventType, messageKey, options = {}) {
+  const runtime = window.oracleVoiceRuntime;
+  const status = runtime && runtime.status ? runtime.status : null;
+  if (!runtime || !status || !status.active || status.state === 'cancelled' || status.state === 'interrupted') return false;
+  const message = ORACLE_COMPARE_RUN_MESSAGES[messageKey] || ORACLE_COMPARE_RUN_MESSAGES.completed;
+  window.dispatchEvent(new CustomEvent('oraclevoice:narration-request', {
+    detail: {
+      source: 'compare_run',
+      eventType: eventType,
+      message: message,
+      compareRunPhase: messageKey,
+      speak: options.speak === true,
+      requireActive: true,
+    },
+  }));
+  return true;
+}
+
+function _requestOracleCompareRunStarted() {
+  return _requestOracleCompareRunNarration('compare.run.started', 'started', { speak: true });
+}
+
+function _requestOracleCompareRunCompleted() {
+  return _requestOracleCompareRunNarration('compare.run.completed', 'completed', { speak: true });
+}
+
+function _requestOracleCompareRunFailed() {
+  return _requestOracleCompareRunNarration('compare.run.failed', 'failed', { speak: true });
+}
+
+function _requestOracleCompareRunStopped() {
+  return _requestOracleCompareRunNarration('compare.run.stopped', 'stopped', { speak: true });
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // ── Toolbar indicator sync ──
 // ────────────────────────────────────────────────────────────────────────────
@@ -528,6 +569,7 @@ function _setSendBtn(mode) {
 function handleCompareSubmit(e) {
   // If streaming, act as stop button
   if (state._streaming) {
+    _requestOracleCompareRunStopped();
     stopAll();
     return;
   }
@@ -614,6 +656,7 @@ async function _executeCompare(message) {
 
   state._streaming = true;
   state._lastPrompt = message;
+  _requestOracleCompareRunStarted();
   _setSendBtn('stop');
   // Disable header buttons during streaming
   document.querySelectorAll('#compare-shuffle-btn, #compare-check-btn, #compare-add-btn').forEach(b => {
@@ -823,8 +866,10 @@ async function _executeCompare(message) {
       }
 
       buildVoteBar(n);
+      _requestOracleCompareRunCompleted();
     } catch (err) {
       console.error('Search compare error:', err);
+      _requestOracleCompareRunFailed();
       if (uiModule) uiModule.showError('Search compare failed: ' + err.message);
     } finally {
       state._streaming = false;
@@ -953,9 +998,11 @@ async function _executeCompare(message) {
       const ta = document.getElementById('message');
       if (ta) ta.focus();
     }
+    _requestOracleCompareRunCompleted();
 
   } catch (err) {
     console.error('Compare error:', err);
+    _requestOracleCompareRunFailed();
     if (uiModule) uiModule.showError('Compare failed: ' + err.message);
   } finally {
     state._streaming = false;

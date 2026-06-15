@@ -9,12 +9,83 @@ import uiModule from './ui.js';
 import * as spinnerModule from './spinner.js';
 
 const API = window.location.origin;
+const ORACLE_SKILL_TEST_MESSAGES = {
+  started: 'A skill check started.',
+  progress: 'A skill check is running.',
+  evaluating: 'A skill check is being evaluated.',
+  completed: 'The skill check finished.',
+  failed: 'The skill check failed.',
+};
 let skills = [];
 let builtinSkills = [];   // read-only agent tool capabilities (TOOL_SECTIONS)
 let loaded = false;
 let _loadPromise = null;
 
 function esc(s) { return uiModule.esc(String(s ?? '')); }
+
+function _requestOracleSkillTestNarration(eventType, messageKey, options = {}) {
+  const runtime = window.oracleVoiceRuntime;
+  const status = runtime && runtime.status ? runtime.status : null;
+  if (!runtime || !status || !status.active || status.state === 'cancelled' || status.state === 'interrupted') return false;
+  const message = ORACLE_SKILL_TEST_MESSAGES[messageKey] || ORACLE_SKILL_TEST_MESSAGES.progress;
+  window.dispatchEvent(new CustomEvent('oraclevoice:narration-request', {
+    detail: {
+      source: 'skill_test',
+      eventType: eventType,
+      message: message,
+      skillTestPhase: messageKey,
+      speak: options.speak === true,
+      requireActive: true,
+    },
+  }));
+  return true;
+}
+
+function _requestOracleSkillTestStarted() {
+  return _requestOracleSkillTestNarration('skill.test.started', 'started', { speak: true });
+}
+
+function _requestOracleSkillTestProgress() {
+  return _requestOracleSkillTestNarration('skill.test.progress', 'progress', { speak: true });
+}
+
+function _requestOracleSkillTestEvaluating() {
+  return _requestOracleSkillTestNarration('skill.test.evaluating', 'evaluating', { speak: true });
+}
+
+function _requestOracleSkillTestCompleted() {
+  return _requestOracleSkillTestNarration('skill.test.completed', 'completed', { speak: true });
+}
+
+function _requestOracleSkillTestFailed() {
+  return _requestOracleSkillTestNarration('skill.test.failed', 'failed', { speak: true });
+}
+
+function _requestOracleSkillTestOnce(card, phaseKey, requestFn) {
+  if (!card || typeof requestFn !== 'function') return false;
+  if (!card._oracleSkillTestNarrated) card._oracleSkillTestNarrated = new Set();
+  if (card._oracleSkillTestNarrated.has(phaseKey)) return false;
+  card._oracleSkillTestNarrated.add(phaseKey);
+  return requestFn();
+}
+
+function _requestOracleSkillTestFromStatus(card, job) {
+  if (!card || !job) return;
+  const log = Array.isArray(job.log) ? job.log : [];
+  const hasEvent = (kind) => log.some(entry => entry && entry.type === kind);
+  if (hasEvent('skill_test_start')) _requestOracleSkillTestOnce(card, 'started', _requestOracleSkillTestStarted);
+  if (hasEvent('agent_step') || hasEvent('tool_start') || hasEvent('tool_output') || hasEvent('say')) {
+    _requestOracleSkillTestOnce(card, 'progress', _requestOracleSkillTestProgress);
+  }
+  if (hasEvent('evaluating')) _requestOracleSkillTestOnce(card, 'evaluating', _requestOracleSkillTestEvaluating);
+  if (hasEvent('error')) _requestOracleSkillTestOnce(card, 'failed', _requestOracleSkillTestFailed);
+
+  const status = String(job.status || '');
+  if (!status || status === 'none' || status === 'running') return;
+  const verdict = job.verdict && job.verdict.verdict ? String(job.verdict.verdict) : '';
+  const failed = /fail|error/i.test(status) || verdict === 'fail';
+  _requestOracleSkillTestOnce(card, failed ? 'failed' : 'completed', failed ? _requestOracleSkillTestFailed : _requestOracleSkillTestCompleted);
+}
 
 let _pendingFocusSkill = null;
 let _cascadeNext = false;   // set true to play the domino-in entrance on the next render
@@ -1096,6 +1167,7 @@ async function _fetchTestStatus(name) {
 
 function _renderTestLog(logEl, verdictEl, job, card, name) {
   if (!logEl) return;
+  _requestOracleSkillTestFromStatus(card, job);
   logEl.innerHTML = '';
   const add = (txt, cls) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = txt; logEl.appendChild(d); };
   for (const ev of (job.log || [])) {
@@ -1118,6 +1190,7 @@ async function _testSkill(card, name, force = false) {
   if (!card.classList.contains('doclib-card-expanded')) await _expandSkillCard(card, name);
   const preview = card.querySelector('.skill-card-preview');
   if (!preview) return;
+  card._oracleSkillTestNarrated = new Set();
   preview.innerHTML =
     '<div class="skill-test"><div class="skill-test-log"></div>' +
     '<div class="skill-test-verdict"></div></div>';
@@ -1129,6 +1202,7 @@ async function _testSkill(card, name, force = false) {
   let job = force ? { status: 'none' } : await _fetchTestStatus(name);
 
   if (job.status === 'none') {
+    _requestOracleSkillTestOnce(card, 'started', _requestOracleSkillTestStarted);
     logEl.innerHTML = '<div class="skill-test-meta">Starting test…</div>';
     let model = '', endpoint_url = '';
     try {

@@ -20,7 +20,32 @@ function esc(s) { return uiModule.esc(s); }
 
 let _mcpMarketplaceEntries = [];
 let _mcpMarketplaceInstalled = [];
+let _mcpMarketplaceMeta = { facets: {}, sources: [], errors: [], total: 0, filtered: 0, installed_count: 0 };
 let _mcpMarketplaceDragWired = false;
+let _mcpMarketplaceSearchTimer = null;
+
+const ORACLE_MCP_MARKETPLACE_MESSAGES = {
+  started: 'An MCP Marketplace action started.',
+  completed: 'The MCP Marketplace action finished.',
+  failed: 'The MCP Marketplace action failed.',
+};
+
+function _requestOracleMcpMarketplaceNarration(eventType, messageKey) {
+  const runtime = window.oracleVoiceRuntime;
+  const status = runtime?.status || {};
+  if (!status.active || status.state === 'interrupted' || status.state === 'cancelled') return;
+  const message = ORACLE_MCP_MARKETPLACE_MESSAGES[messageKey];
+  if (!eventType || !message) return;
+  window.dispatchEvent(new CustomEvent('oraclevoice:narration-request', {
+    detail: {
+      source: 'mcp_marketplace',
+      eventType,
+      message,
+      speak: true,
+      requireActive: true,
+    },
+  }));
+}
 
 function _wireMcpMarketplaceDrag(modal) {
   if (_mcpMarketplaceDragWired || !modal) return;
@@ -47,6 +72,41 @@ function _statusClass(color) {
   if (color === 'green') return 'mcp-status-green';
   if (color === 'yellow') return 'mcp-status-yellow';
   return 'mcp-status-red';
+}
+
+function _mcpFacetOptions(facet = []) {
+  return facet.map(item => `<option value="${esc(item.value)}">${esc(item.value)} (${Number(item.count || 0)})</option>`).join('');
+}
+
+function _setSelectOptions(select, label, facet = [], selected = '') {
+  if (!select) return;
+  select.innerHTML = `<option value="">${esc(label)}</option>${_mcpFacetOptions(facet)}`;
+  select.value = selected;
+}
+
+function _marketplaceFilters() {
+  return {
+    q: el('adm-mcp-marketplace-search')?.value?.trim() || '',
+    runtime: el('adm-mcp-marketplace-runtime')?.value || '',
+    source: el('adm-mcp-marketplace-source')?.value || '',
+    category: el('adm-mcp-marketplace-category')?.value || '',
+    sort: el('adm-mcp-marketplace-sort')?.value || 'name',
+  };
+}
+
+function _marketplaceQueryString(filters = _marketplaceFilters()) {
+  const params = new URLSearchParams('include_meta=true');
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  return params.toString();
+}
+
+function _scheduleMcpMarketplaceEntryLoad() {
+  clearTimeout(_mcpMarketplaceSearchTimer);
+  _mcpMarketplaceSearchTimer = setTimeout(() => {
+    loadMcpMarketplaceEntries().catch(err => _marketplaceMsg(err.message, true));
+  }, 180);
 }
 
 async function _fetchJson(url, options = {}) {
@@ -2168,8 +2228,9 @@ function initDangerZone() {
 function renderMcpMarketplaceBrowse() {
   const list = el('adm-mcp-marketplace-browse');
   if (!list) return;
+  renderMcpMarketplaceDiscoveryMeta();
   if (!_mcpMarketplaceEntries.length) {
-    list.innerHTML = '<div class="admin-empty">No catalog entries loaded. Refresh catalogs to begin.</div>';
+    list.innerHTML = '<div class="admin-empty">No marketplace entries match the current filters.</div>';
     return;
   }
   list.innerHTML = _mcpMarketplaceEntries.map(entry => `
@@ -2179,7 +2240,15 @@ function renderMcpMarketplaceBrowse() {
           <div class="mcp-marketplace-title">${esc(entry.name)}</div>
           <div class="mcp-marketplace-meta">${esc(entry.runtime)} · ${esc(entry.publisher)} · ${esc(entry.version)}</div>
         </div>
-        <button class="admin-btn-add" data-mcp-install="${esc(entry.id)}">Install</button>
+        <div class="mcp-marketplace-card-actions">
+          ${entry.installed ? `<span class="mcp-installed-badge">Installed${entry.installed_status ? `: ${esc(entry.installed_status)}` : ''}</span>` : ''}
+          <button class="admin-btn-add" data-mcp-install="${esc(entry.id)}" ${entry.installed ? 'disabled' : ''}>${entry.installed ? 'Installed' : 'Install'}</button>
+        </div>
+      </div>
+      <div class="mcp-marketplace-chips">
+        <span class="mcp-chip">${esc(entry.source_id || 'catalog')}</span>
+        ${(entry.categories || []).slice(0, 3).map(category => `<span class="mcp-chip">${esc(category)}</span>`).join('')}
+        ${(entry.tags || []).slice(0, 4).map(tag => `<span class="mcp-chip">${esc(tag)}</span>`).join('')}
       </div>
       <div class="mcp-marketplace-desc">${esc(entry.description)}</div>
       <div class="mcp-marketplace-perms">Permissions: ${(entry.permissions || []).map(esc).join(', ') || 'None listed'}</div>
@@ -2188,9 +2257,36 @@ function renderMcpMarketplaceBrowse() {
 }
 
 async function loadMcpMarketplaceEntries() {
-  const entries = await _fetchJson('/api/mcp/marketplace/entries');
-  _mcpMarketplaceEntries = Array.isArray(entries) ? entries : [];
+  const data = await _fetchJson(`/api/mcp/marketplace/entries?${_marketplaceQueryString()}`);
+  _mcpMarketplaceEntries = Array.isArray(data) ? data : (data.entries || []);
+  _mcpMarketplaceMeta = Array.isArray(data)
+    ? { facets: {}, sources: [], errors: [], total: data.length, filtered: data.length, installed_count: 0 }
+    : data;
   renderMcpMarketplaceBrowse();
+}
+
+function renderMcpMarketplaceDiscoveryMeta() {
+  const filters = _marketplaceFilters();
+  const facets = _mcpMarketplaceMeta.facets || {};
+  _setSelectOptions(el('adm-mcp-marketplace-runtime'), 'All runtimes', facets.runtimes || [], filters.runtime);
+  _setSelectOptions(el('adm-mcp-marketplace-source'), 'All sources', facets.sources || [], filters.source);
+  _setSelectOptions(el('adm-mcp-marketplace-category'), 'All categories', facets.categories || [], filters.category);
+
+  const summary = el('adm-mcp-marketplace-summary');
+  if (summary) {
+    const filtered = Number(_mcpMarketplaceMeta.filtered || _mcpMarketplaceEntries.length || 0);
+    const total = Number(_mcpMarketplaceMeta.total || filtered);
+    const installed = Number(_mcpMarketplaceMeta.installed_count || 0);
+    const refreshed = _mcpMarketplaceMeta.refreshed_at ? ` · refreshed ${esc(new Date(_mcpMarketplaceMeta.refreshed_at).toLocaleString())}` : '';
+    summary.innerHTML = `${filtered} of ${total} servers · ${installed} installed${refreshed}`;
+  }
+
+  const sourcebar = el('adm-mcp-marketplace-sources');
+  if (sourcebar) {
+    const sources = (_mcpMarketplaceMeta.sources || []).map(source => `<span class="mcp-chip">${esc(source.name || source.id)} · ${esc(source.type || 'file')}</span>`).join('');
+    const errors = (_mcpMarketplaceMeta.errors || []).map(error => `<span class="mcp-chip mcp-chip-error">${esc(error)}</span>`).join('');
+    sourcebar.innerHTML = `${sources}${errors}`;
+  }
 }
 
 async function refreshMcpMarketplaceCatalogs() {
@@ -2216,12 +2312,20 @@ async function installMcpMarketplaceEntry(entryId) {
     if (value) config[field.name] = value;
   }
   _marketplaceMsg(`Installing ${entry.name}...`);
-  await _fetchJson(`/api/mcp/marketplace/install/${encodeURIComponent(entryId)}`, {
-    method: 'POST',
-    body: JSON.stringify({ config }),
-  });
-  await loadMcpMarketplaceInstalled();
-  _marketplaceMsg(`${entry.name} installed`);
+  _requestOracleMcpMarketplaceNarration('mcp.marketplace.install.started', 'started');
+  try {
+    await _fetchJson(`/api/mcp/marketplace/install/${encodeURIComponent(entryId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ config }),
+    });
+    await loadMcpMarketplaceEntries();
+    await loadMcpMarketplaceInstalled();
+    _marketplaceMsg(`${entry.name} installed`);
+    _requestOracleMcpMarketplaceNarration('mcp.marketplace.install.completed', 'completed');
+  } catch (err) {
+    _requestOracleMcpMarketplaceNarration('mcp.marketplace.install.failed', 'failed');
+    throw err;
+  }
 }
 
 function renderMcpMarketplaceInstalled() {
@@ -2262,13 +2366,21 @@ async function loadMcpMarketplaceInstalled() {
 }
 
 async function runMcpMarketplaceAction(installedId, action) {
-  if (action === 'delete') {
-    if (!await uiModule.styledConfirm('Uninstall this MCP server?', { confirmText: 'Uninstall', danger: true })) return;
-    await _fetchJson(`/api/mcp/marketplace/installed/${encodeURIComponent(installedId)}`, { method: 'DELETE' });
-  } else {
-    await _fetchJson(`/api/mcp/marketplace/installed/${encodeURIComponent(installedId)}/${action}`, { method: 'POST' });
+  if (action === 'delete' && !await uiModule.styledConfirm('Uninstall this MCP server?', { confirmText: 'Uninstall', danger: true })) return;
+  _requestOracleMcpMarketplaceNarration('mcp.marketplace.action.started', 'started');
+  try {
+    if (action === 'delete') {
+      await _fetchJson(`/api/mcp/marketplace/installed/${encodeURIComponent(installedId)}`, { method: 'DELETE' });
+    } else {
+      await _fetchJson(`/api/mcp/marketplace/installed/${encodeURIComponent(installedId)}/${action}`, { method: 'POST' });
+    }
+    await loadMcpMarketplaceEntries();
+    await loadMcpMarketplaceInstalled();
+    _requestOracleMcpMarketplaceNarration('mcp.marketplace.action.completed', 'completed');
+  } catch (err) {
+    _requestOracleMcpMarketplaceNarration('mcp.marketplace.action.failed', 'failed');
+    throw err;
   }
-  await loadMcpMarketplaceInstalled();
 }
 
 async function configureMcpMarketplaceInstalled(installedId) {
@@ -2345,6 +2457,13 @@ function initMcpMarketplace() {
 
   el('adm-mcp-marketplace-refresh')?.addEventListener('click', () => {
     refreshMcpMarketplaceCatalogs().catch(err => _marketplaceMsg(err.message, true));
+  });
+
+  el('adm-mcp-marketplace-search')?.addEventListener('input', _scheduleMcpMarketplaceEntryLoad);
+  ['adm-mcp-marketplace-runtime', 'adm-mcp-marketplace-source', 'adm-mcp-marketplace-category', 'adm-mcp-marketplace-sort'].forEach(id => {
+    el(id)?.addEventListener('change', () => {
+      loadMcpMarketplaceEntries().catch(err => _marketplaceMsg(err.message, true));
+    });
   });
 
   root.querySelectorAll('[data-mcp-marketplace-tab]').forEach(btn => {

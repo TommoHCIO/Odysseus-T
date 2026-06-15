@@ -22,8 +22,10 @@ from src.host_bridge_control import (
 )
 from src.mcp_marketplace_catalog import (
     default_catalog_sources,
+    filter_catalog_entries,
     get_catalog_entry,
     load_catalog_cache,
+    marketplace_catalog_facets,
     refresh_catalog_cache,
 )
 from src.mcp_marketplace_runtime import build_mcp_server_config, install_marketplace_entry, status_color
@@ -156,7 +158,41 @@ def setup_mcp_routes(mcp_manager: McpManager):
     def marketplace_entries(request: Request):
         require_admin(request)
         cache = load_catalog_cache()
-        return cache.get("entries", [])
+        entries = list(cache.get("entries", []))
+        query = (request.query_params.get("q") or "").strip()
+        runtime = (request.query_params.get("runtime") or "").strip()
+        source = (request.query_params.get("source") or "").strip()
+        category = (request.query_params.get("category") or "").strip()
+        tag = (request.query_params.get("tag") or "").strip()
+        sort = (request.query_params.get("sort") or "name").strip()
+        filtered = filter_catalog_entries(
+            entries,
+            query=query,
+            runtime=runtime,
+            source=source,
+            category=category,
+            tag=tag,
+            sort=sort,
+        )
+        installed_by_entry = {item.catalog_entry_id: item for item in _marketplace_store().list()}
+        for entry in filtered:
+            installed = installed_by_entry.get(entry.get("id"))
+            entry["installed"] = installed is not None
+            entry["installed_status"] = installed.status if installed else None
+            entry["mcp_server_id"] = installed.mcp_server_id if installed else None
+        include_meta = (request.query_params.get("include_meta") or "").lower() in {"1", "true", "yes"}
+        if not include_meta:
+            return filtered
+        return {
+            "entries": filtered,
+            "facets": marketplace_catalog_facets(entries),
+            "total": len(entries),
+            "filtered": len(filtered),
+            "sources": cache.get("sources", []),
+            "refreshed_at": cache.get("refreshed_at"),
+            "errors": cache.get("errors", []),
+            "installed_count": len(installed_by_entry),
+        }
 
     @router.post("/marketplace/install/{entry_id}")
     async def marketplace_install(entry_id: str, request: Request):

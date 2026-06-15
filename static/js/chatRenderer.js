@@ -2,7 +2,7 @@
 // Extracted from chat.js — message rendering, sources, images, metrics
 
 import uiModule from './ui.js';
-import markdownModule from './markdown.js';
+import markdownModule from './markdown.js?v=20260614emoji2';
 import { addAITTSButton } from './tts-ai.js';
 import { providerLogo } from './providers.js';
 import settingsModule from './settings.js';

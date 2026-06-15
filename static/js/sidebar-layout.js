@@ -93,15 +93,6 @@ export function initSidebarLayout(Storage, opts) {
   }
 
   // New chat buttons — same as clicking brand
-  const chatNewBtn = document.getElementById('chat-new-btn');
-  const sidebarNewChat = document.getElementById('sidebar-new-chat-btn');
-  [chatNewBtn, sidebarNewChat].forEach(btn => {
-    if (btn) btn.addEventListener('click', () => {
-      const brandBtn = document.getElementById('sidebar-brand-btn');
-      if (brandBtn) brandBtn.click();
-    });
-  });
-
   // Hamburger cycles: full sidebar → mini → off → full
   // Shift-click swaps sidebar side
   let _userToggledSidebar = false;

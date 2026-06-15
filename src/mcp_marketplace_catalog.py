@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -230,6 +231,86 @@ def normalize_catalog_entries(sources: Iterable[CatalogSource]) -> Tuple[List[Ca
             if current is None or entry.source_priority > current.source_priority:
                 by_id[entry.id] = entry
     return sorted(by_id.values(), key=lambda item: item.name.lower()), errors
+
+
+def _field_values(entry: Dict[str, Any], field: str) -> List[str]:
+    raw = entry.get(field)
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(value) for value in raw if str(value).strip()]
+    value = str(raw).strip()
+    return [value] if value else []
+
+
+def _facet(items: Iterable[str]) -> List[Dict[str, Any]]:
+    counts = Counter(item for item in items if item)
+    return [{"value": value, "count": counts[value]} for value in sorted(counts, key=lambda item: item.lower())]
+
+
+def marketplace_catalog_facets(entries: Iterable[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    entry_list = list(entries)
+    return {
+        "runtimes": _facet(str(entry.get("runtime") or "") for entry in entry_list),
+        "sources": _facet(str(entry.get("source_id") or "") for entry in entry_list),
+        "categories": _facet(value for entry in entry_list for value in _field_values(entry, "categories")),
+        "tags": _facet(value for entry in entry_list for value in _field_values(entry, "tags")),
+        "publishers": _facet(str(entry.get("publisher") or "") for entry in entry_list),
+    }
+
+
+def _matches_filter(entry: Dict[str, Any], field: str, expected: str) -> bool:
+    if not expected or expected == "all":
+        return True
+    expected_l = expected.lower()
+    if field in {"categories", "tags"}:
+        return any(value.lower() == expected_l for value in _field_values(entry, field))
+    return str(entry.get(field) or "").lower() == expected_l
+
+
+def _matches_query(entry: Dict[str, Any], query: str) -> bool:
+    query = query.strip().lower()
+    if not query:
+        return True
+    haystack = " ".join([
+        str(entry.get("name") or ""),
+        str(entry.get("description") or ""),
+        str(entry.get("publisher") or ""),
+        str(entry.get("runtime") or ""),
+        str(entry.get("package_type") or ""),
+        str(entry.get("source_id") or ""),
+        " ".join(_field_values(entry, "categories")),
+        " ".join(_field_values(entry, "tags")),
+    ]).lower()
+    return query in haystack
+
+
+def filter_catalog_entries(
+    entries: Iterable[Dict[str, Any]],
+    query: str = "",
+    runtime: str = "",
+    source: str = "",
+    category: str = "",
+    tag: str = "",
+    sort: str = "name",
+) -> List[Dict[str, Any]]:
+    filtered = [
+        dict(entry)
+        for entry in entries
+        if _matches_query(entry, query)
+        and _matches_filter(entry, "runtime", runtime)
+        and _matches_filter(entry, "source_id", source)
+        and _matches_filter(entry, "categories", category)
+        and _matches_filter(entry, "tags", tag)
+    ]
+    key_map = {
+        "name": lambda entry: str(entry.get("name") or "").lower(),
+        "publisher": lambda entry: str(entry.get("publisher") or "").lower(),
+        "runtime": lambda entry: (str(entry.get("runtime") or "").lower(), str(entry.get("name") or "").lower()),
+        "source": lambda entry: (str(entry.get("source_id") or "").lower(), str(entry.get("name") or "").lower()),
+    }
+    filtered.sort(key=key_map.get(sort, key_map["name"]))
+    return filtered
 
 
 def refresh_catalog_cache(sources: Iterable[CatalogSource] | None = None, cache_path: Path | str | None = None) -> Dict[str, Any]:

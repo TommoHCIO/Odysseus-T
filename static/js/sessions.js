@@ -1334,7 +1334,7 @@ function _animateSessionRowsRemoving(ids, selector) {
   return new Promise(resolve => setTimeout(resolve, 520));
 }
 
-export async function loadSessions() {
+export async function loadSessions({ preserveUnlistedCurrent = false } = {}) {
   try {
     // Delete incognito sessions left over from a previous page load
     await _cleanupIncognitoSessions();
@@ -1390,8 +1390,14 @@ export async function loadSessions() {
     } else if (currentSessionId && activeSessions.some(s => s.id === currentSessionId)) {
       targetId = currentSessionId;
     } else if (currentSessionId) {
-      // Cached current session no longer exists server-side.
-      _clearStaleSessionState(currentSessionId);
+      if (preserveUnlistedCurrent) {
+        // Newly materialized sessions are empty until their first message is
+        // persisted, and /api/sessions intentionally hides empty sessions.
+        targetId = currentSessionId;
+      } else {
+        // Cached current session no longer exists server-side.
+        _clearStaleSessionState(currentSessionId);
+      }
     } else if (savedId && activeSessions.some(s => s.id === savedId)) {
       targetId = savedId;
     } else if (!_skipAutoSelect && _realSessions.length > 0) {
@@ -1886,7 +1892,7 @@ export async function materializePendingSession() {
 
   // Reload sidebar to show the new session — await it so the session
   // is fully registered before the caller proceeds (prevents race conditions)
-  await loadSessions().catch(() => {});
+  await loadSessions({ preserveUnlistedCurrent: true }).catch(() => {});
   return true;
 }
 

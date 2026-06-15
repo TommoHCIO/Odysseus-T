@@ -14,6 +14,13 @@ let modalEl = null;
 function el(id) { return document.getElementById(id); }
 function esc(s) { return uiModule.esc(s); }
 
+function stopWhatsAppQrPolling() {
+  if (window.__waQrPollTimer) {
+    clearInterval(window.__waQrPollTimer);
+    window.__waQrPollTimer = null;
+  }
+}
+
 /* ── Tab switching ── */
 const ADMIN_TABS = new Set(['services', 'integrations', 'tools', 'users', 'system']);
 
@@ -93,6 +100,7 @@ function initClose() {
     if (innerForm && innerForm.style.display !== 'none' && innerForm.children.length > 0) {
       e.preventDefault();
       e.stopPropagation();
+      stopWhatsAppQrPolling();
       innerForm.style.display = 'none';
       innerForm.innerHTML = '';
       return;
@@ -3074,6 +3082,7 @@ const INTG_TYPES = {
   contacts: { label: 'Contacts', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' },
   carddav: { label: 'CardDAV', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' },
   email:   { label: 'Email',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>' },
+  whatsapp:{ label: 'WhatsApp', icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.8 8.8 0 0 1-4.1-1l-4.4 1 1.2-4.1a8.3 8.3 0 0 1-1.2-4.4 8.5 8.5 0 0 1 17 0Z"/><path d="M9.2 8.8c.2 2.9 2.1 4.9 5 5.7l1.4-1.3"/></svg>' },
   mcp:     { label: 'MCP',     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' },
   vault:   { label: 'Vault',   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' },
 };
@@ -3089,18 +3098,22 @@ async function initUnifiedIntegrations() {
   const addBtn = el('unified-intg-add-btn');
   if (!listEl) return;
   let integrationNotice = '';
+  const quickWhatsAppPhoneKey = 'odysseus.whatsapp.quickPhone';
+  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  const normalizePhone = (value) => String(value || '').replace(/[^\d]/g, '');
 
   function _openEmailSettings() {
     open('email');
   }
 
   async function fetchAll() {
-    const [apiRes, calRes, cardRes, contactsRes, emailAccountsRes, mcpRes, vaultRes] = await Promise.all([
+    const [apiRes, calRes, cardRes, contactsRes, emailAccountsRes, whatsappAccountsRes, mcpRes, vaultRes] = await Promise.all([
       fetch('/api/auth/integrations', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { integrations: [] }).catch(() => ({ integrations: [] })),
       fetch('/api/calendar/config', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
       fetch('/api/contacts/config', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
-      fetch('/api/contacts/list', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { contacts: [], count: 0 }).catch(() => ({ contacts: [], count: 0 })),
+      fetch('/api/contacts/summary', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { count: 0 }).catch(() => ({ count: 0 })),
       fetch('/api/email/accounts', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { accounts: [] }).catch(() => ({ accounts: [] })),
+      fetch('/api/whatsapp/accounts', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { accounts: [] }).catch(() => ({ accounts: [] })),
       fetch('/api/mcp/servers', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/vault/config', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).catch(() => ({})),
     ]);
@@ -3114,7 +3127,7 @@ async function initUnifiedIntegrations() {
       items.push({ type: 'caldav', id: '__caldav__', name: 'Calendar (CalDAV)', detail: calRes.url, enabled: true, data: calRes });
     }
     // Contacts import first, then the optional CardDAV sync account.
-    const contactCount = Number(contactsRes.count || (contactsRes.contacts || []).length || 0);
+    const contactCount = Number(contactsRes.count || 0);
     if (contactCount > 0) {
       items.push({
         type: 'contacts',
@@ -3140,6 +3153,11 @@ async function initUnifiedIntegrations() {
       const label = acc.name + (acc.is_default ? ' (default)' : '');
       const detail = [acc.from_address || acc.imap_user, acc.imap_host].filter(Boolean).join(' — ');
       items.push({ type: 'email', id: acc.id, name: label, detail, enabled: acc.enabled !== false, data: acc });
+    }
+    for (const acc of (whatsappAccountsRes.accounts || [])) {
+      const label = acc.name + (acc.is_default ? ' (default)' : '');
+      const detail = [acc.transport, `${acc.auth_state}/${acc.setup_state}`, acc.display_phone_number].filter(Boolean).join(' - ');
+      items.push({ type: 'whatsapp', id: acc.id, name: label, detail, enabled: acc.enabled !== false, data: acc });
     }
     // MCP servers
     const mcpList = Array.isArray(mcpRes) ? mcpRes : (mcpRes.servers || []);
@@ -3217,6 +3235,7 @@ async function initUnifiedIntegrations() {
             await fetch('/api/contacts/config', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ carddav_url: '', carddav_username: '', carddav_password: '' }) });
           }
           else if (type === 'email') await fetch(`/api/email/accounts/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+          else if (type === 'whatsapp') await fetch(`/api/whatsapp/accounts/${id}`, { method: 'DELETE', credentials: 'same-origin' });
           else if (type === 'mcp') await fetch(`/api/mcp/servers/${id}`, { method: 'DELETE', credentials: 'same-origin' });
           else if (type === 'vault') await fetch('/api/vault/logout', { method: 'POST', credentials: 'same-origin' });
         } catch (_) {}
@@ -3233,11 +3252,366 @@ async function initUnifiedIntegrations() {
     else if (type === 'caldav') showCalDavForm();
     else if (type === 'contacts' || type === 'carddav') showCardDavForm();
     else if (type === 'email') showEmailForm(editId);
+    else if (type === 'whatsapp') showWhatsAppForm(editId);
     else if (type === 'mcp') showMcpForm(editId);
     else if (type === 'vault') showVaultForm();
   }
 
   // ── API form ──
+  async function openWhatsAppQrSetup(options = {}) {
+    formEl.style.display = '';
+    const phone = String(options.phoneNumber || localStorage.getItem(quickWhatsAppPhoneKey) || '').trim();
+    if (phone) {
+      try { localStorage.setItem(quickWhatsAppPhoneKey, phone); } catch (_) {}
+    }
+    let accounts = [];
+    try {
+      const r = await fetch('/api/whatsapp/accounts', { credentials: 'same-origin' });
+      const d = await r.json().catch(() => ({}));
+      accounts = d.accounts || [];
+    } catch (_) {}
+    const phoneDigits = normalizePhone(phone);
+    let account = phoneDigits
+      ? accounts.find(a => normalizePhone(a.display_phone_number) === phoneDigits)
+      : null;
+    account = account
+      || accounts.find(a => ['qr_pending', 'connecting', 'reconnect_required', 'disconnected', 'failed'].includes(a.auth_state))
+      || accounts.find(a => a.is_default)
+      || accounts[0]
+      || null;
+    if (account?.id && phone && normalizePhone(account.display_phone_number) !== phoneDigits) {
+      try {
+        const r = await fetch(`/api/whatsapp/accounts/${account.id}`, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ display_phone_number: phone, is_default: true }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.account) account = d.account;
+      } catch (_) {}
+    }
+    await renderList();
+    await showWhatsAppForm(account?.id || 'new');
+    await wait(100);
+    const phoneInput = el('uf-wa-phone');
+    const disclosure = el('uf-wa-disclosure');
+    const defaultToggle = el('uf-wa-default');
+    const nameInput = el('uf-wa-name');
+    if (phone && phoneInput) phoneInput.value = phone;
+    if (!account && nameInput && phone) nameInput.value = 'Personal WhatsApp';
+    if (disclosure) {
+      disclosure.checked = true;
+      disclosure.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (defaultToggle) defaultToggle.checked = true;
+    if (account?.auth_state === 'connected' && account?.setup_state === 'connected' && options.forceReconnect !== true) {
+      const panel = el('uf-wa-qr-panel');
+      const status = el('uf-wa-qr-status');
+      if (panel) panel.classList.remove('hidden');
+      if (status) status.textContent = 'Connected. Use Sync Chats to import available history.';
+      try { window.dispatchEvent(new CustomEvent('whatsapp-integrations-changed')); } catch (_) {}
+      return account;
+    }
+    if (options.autoStart !== false) {
+      el('uf-wa-qr')?.click();
+    }
+    return account;
+  }
+  window.__settingsOpenWhatsAppQrSetup = openWhatsAppQrSetup;
+
+  async function showWhatsAppForm(editId) {
+    stopWhatsAppQrPolling();
+    const isEdit = editId && editId !== 'new' && editId !== '__whatsapp__';
+    let existing = null;
+    if (isEdit) {
+      try {
+        const r = await fetch('/api/whatsapp/accounts', { credentials: 'same-origin' });
+        const d = await r.json();
+        existing = (d.accounts || []).find(a => a.id === editId) || null;
+      } catch (_) {}
+    }
+    let activeAccountId = existing?.id || (isEdit ? editId : null);
+    let qrPollStartedAt = 0;
+    const checks = existing?.setup_checks || {};
+    const diagnostics = existing?.diagnostics || {};
+    const sync = diagnostics.whatsapp_sync || {};
+    const caps = existing?.capabilities || {};
+    const checkRows = ['messaging', 'media', 'ringtone', 'chrome_calls', 'desktop_fallback', 'os_automation']
+      .map(k => `<div class="wa-settings-check"><span>${esc(k.replace(/_/g, ' '))}</span><strong>${esc(checks[k] || 'not run')}</strong></div>`)
+      .join('');
+    const syncSummary = sync.status
+      ? `${sync.status} / ${sync.phase || 'available_history'} - ${Number(sync.chats_normalized || 0)} chats, ${Number(sync.messages_processed || 0)} messages`
+      : 'not started';
+    const disabledLive = !existing ? 'disabled' : '';
+    const qrButtonLabel = isEdit ? 'Connect with QR' : 'Create & Connect with QR';
+    formEl.innerHTML = `
+      <div class="admin-card whatsapp-settings-card" style="margin-top:8px">
+        <h2 style="font-size:13px">${isEdit ? 'WhatsApp Account' : 'Add WhatsApp Account'}</h2>
+        <div class="settings-col">
+          <div class="settings-row"><label class="settings-label">Name</label><input id="uf-wa-name" class="settings-input" value="${esc(existing?.name || 'Personal WhatsApp')}"></div>
+          <div class="settings-row"><label class="settings-label">Transport</label><select id="uf-wa-transport" class="settings-select" ${isEdit ? 'disabled' : ''}><option value="web_client">Personal QR / Chrome</option><option value="linked_device_socket">Linked-device socket</option><option value="official_desktop_client">WhatsApp Desktop fallback</option><option value="cloud_api">Cloud API</option></select></div>
+          <div class="settings-row"><label class="settings-label">Phone</label><input id="uf-wa-phone" class="settings-input" placeholder="+15551234567" value="${esc(existing?.display_phone_number || '')}"></div>
+          <div class="settings-row"><label class="settings-label">Device label</label><input id="uf-wa-device" class="settings-input" placeholder="Odysseus" value="${esc(existing?.device_label || 'Odysseus')}"></div>
+          <div class="settings-row"><label class="settings-label">Default</label><label class="admin-switch" style="margin-left:0"><input type="checkbox" id="uf-wa-default" ${existing?.is_default ? 'checked' : ''}><span class="admin-slider"></span></label></div>
+          <div class="settings-row"><label class="settings-label">Disclosure</label><label class="admin-switch" style="margin-left:0"><input type="checkbox" id="uf-wa-disclosure" ${existing?.risk_disclosure_accepted ? 'checked' : ''}><span class="admin-slider"></span></label><span style="font-size:10px;opacity:0.55;margin-left:6px">Personal automation, no bulk/spam sends.</span></div>
+          <div class="settings-row"><label class="settings-label">Notifications</label><select id="uf-wa-notify" class="settings-select"><option value="sidebar_only">Sidebar only</option><option value="browser">Browser</option><option value="email">Email</option><option value="ntfy">ntfy</option><option value="silent">Silent</option></select></div>
+          <div class="settings-row"><label class="settings-label">Ringtone</label><select id="uf-wa-ringtone" class="settings-select"><option value="odysseus-classic">Odysseus Classic</option><option value="soft-pulse">Soft Pulse</option><option value="silent">Silent</option></select><input id="uf-wa-volume" type="range" min="0" max="100" value="${Number(existing?.ringtone_volume || 70)}" style="width:110px"></div>
+          <div class="settings-row"><label class="settings-label">Media</label><label class="admin-switch" style="margin-left:0"><input type="checkbox" id="uf-wa-media-auto" ${existing?.auto_download_media !== false ? 'checked' : ''}><span class="admin-slider"></span></label><span style="font-size:10px;opacity:0.55;margin-left:6px">Auto-download allowed media</span></div>
+          <div class="settings-row"><label class="settings-label">Audio</label><label class="admin-switch" style="margin-left:0"><input type="checkbox" id="uf-wa-transcribe" ${existing?.auto_transcribe_audio ? 'checked' : ''}><span class="admin-slider"></span></label><span style="font-size:10px;opacity:0.55;margin-left:6px">Transcribe voice notes when enabled</span></div>
+          ${existing ? `<div class="wa-settings-status"><div><strong>Auth</strong><span>${esc(existing.auth_state)} / ${esc(existing.setup_state)}</span></div><div><strong>Bridge</strong><span>${caps.host_bridge_available ? 'online' : 'required'}</span></div><div><strong>Sync</strong><span>${esc(syncSummary)}</span></div><div><strong>Last event</strong><span>${esc(diagnostics.last_event || 'none')}</span></div><div><strong>Last error</strong><span>${esc(sync.last_error || diagnostics.last_send_error || diagnostics.last_error || 'none')}</span></div></div><div class="wa-settings-checks">${checkRows}</div>` : ''}
+          <div id="uf-wa-qr-panel" class="wa-settings-qr hidden"><canvas id="uf-wa-qr-canvas" width="220" height="220" aria-label="WhatsApp linked device QR"></canvas><div id="uf-wa-qr-status"></div><div id="uf-wa-qr-fallback" class="wa-settings-qr-fallback"></div></div>
+          <div class="settings-row" style="margin-top:4px;flex-wrap:wrap;gap:6px">
+            <button class="admin-btn-sm" id="uf-wa-save">${isEdit ? 'Save' : 'Create'}</button>
+            <button class="admin-btn-sm" id="uf-wa-risk" ${disabledLive}>Save Disclosure</button>
+            <button class="admin-btn-sm" id="uf-wa-qr">${qrButtonLabel}</button>
+            <button class="admin-btn-sm" id="uf-wa-sync" ${disabledLive}>Sync Chats</button>
+            <button class="admin-btn-sm" id="uf-wa-checks" ${disabledLive}>Run Checks</button>
+            <button class="admin-btn-sm" id="uf-wa-ringtone-test" ${disabledLive}>Test Ringtone</button>
+            <button class="admin-btn-sm" id="uf-wa-default-btn" ${disabledLive}>Make Default</button>
+            <button class="admin-btn-sm" id="uf-wa-cache" ${disabledLive}>Delete Cache</button>
+            <button class="admin-btn-sm" id="uf-wa-disconnect" ${disabledLive}>Disconnect</button>
+            <button class="admin-btn-sm" id="uf-wa-export" ${disabledLive}>Export</button>
+            <button class="admin-btn-sm" id="uf-wa-cancel" style="opacity:0.7">Close</button>
+            <span id="uf-wa-msg" style="font-size:11px;flex:1"></span>
+          </div>
+        </div>
+      </div>`;
+    if (existing) {
+      el('uf-wa-transport').value = existing.transport || 'web_client';
+      el('uf-wa-notify').value = existing.notification_channel || 'sidebar_only';
+      el('uf-wa-ringtone').value = existing.ringtone || 'odysseus-classic';
+    }
+    const msg = (text, color) => {
+      const m = el('uf-wa-msg');
+      if (!m) return;
+      m.textContent = text || '';
+      m.style.color = color || '';
+    };
+    const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    const isFetchFailure = (error) => /failed\s+to\s+fetch|networkerror|load failed/i.test(String(error?.message || error || ''));
+    const fetchJsonRetry = async (url, options = {}, retries = 2) => {
+      let lastError = null;
+      for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+          const r = await fetch(url, options);
+          const d = await r.json().catch(() => ({}));
+          return { r, d };
+        } catch (error) {
+          lastError = error;
+          if (!isFetchFailure(error) || attempt >= retries) break;
+          await wait(700 * (attempt + 1));
+        }
+      }
+      throw lastError || new Error('Request failed');
+    };
+    const refresh = async () => {
+      await renderList();
+      if (activeAccountId) await showWhatsAppForm(activeAccountId);
+      else if (isEdit) await showWhatsAppForm(editId);
+      try { window.dispatchEvent(new CustomEvent('whatsapp-integrations-changed')); } catch (_) {}
+    };
+    const drawQr = async (payload) => {
+      const panel = el('uf-wa-qr-panel');
+      const canvas = el('uf-wa-qr-canvas');
+      const fallback = el('uf-wa-qr-fallback');
+      if (!panel || !canvas || !payload) return;
+      panel.classList.remove('hidden');
+      if (fallback) fallback.textContent = '';
+      try {
+        if (window.QRCode?.toCanvas) {
+          await window.QRCode.toCanvas(canvas, payload, { width: 220, margin: 1, errorCorrectionLevel: 'M' });
+        } else {
+          throw new Error('QR renderer unavailable');
+        }
+      } catch (_) {
+        if (fallback) fallback.textContent = 'QR renderer unavailable. Refresh QR or try Connect with QR again.';
+      }
+    };
+    const setQrStatus = (text, color) => {
+      const status = el('uf-wa-qr-status');
+      if (!status) return;
+      status.textContent = text || '';
+      status.style.color = color || '';
+    };
+    const pollQr = async () => {
+      if (!activeAccountId) {
+        setQrStatus('Creating WhatsApp account...');
+        return;
+      }
+      try {
+        const { r, d } = await fetchJsonRetry(`/api/whatsapp/accounts/${activeAccountId}/qr`, { credentials: 'same-origin' }, 1);
+        if (r.status === 404) {
+          if (qrPollStartedAt && Date.now() - qrPollStartedAt < 15 * 60 * 1000) {
+            setQrStatus('Preparing the WhatsApp account. Keep this open while the QR appears...', '');
+            return;
+          }
+          if (window.__waQrPollTimer) clearInterval(window.__waQrPollTimer);
+          stopWhatsAppQrPolling();
+          setQrStatus('WhatsApp account is no longer available.', 'var(--red)');
+          return;
+        }
+        if (!r.ok || d.ok === false) throw new Error(d.detail || d.error || `HTTP ${r.status}`);
+        if (d.qr) await drawQr(d.qr);
+        if (d.connected || d.account?.auth_state === 'connected') {
+          setQrStatus('Connected. Use Sync Chats to import available history.', 'var(--green,#50fa7b)');
+          msg('Connected. Use Sync Chats to import available history.', 'var(--green,#50fa7b)');
+          stopWhatsAppQrPolling();
+          await fetch(`/api/whatsapp/accounts/${activeAccountId}/run-setup-checks`, { method: 'POST', credentials: 'same-origin' });
+          try { window.dispatchEvent(new CustomEvent('whatsapp-integrations-changed')); } catch (_) {}
+          await refresh();
+          return;
+        }
+        const state = d.state || d.account?.auth_state || 'pending';
+        const expires = d.qr_expires_at ? ` Expires ${new Date(d.qr_expires_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : '';
+        setQrStatus(`${state}.${expires}`, d.last_error ? 'var(--red)' : '');
+      } catch (e) {
+        if (isFetchFailure(e)) {
+          setQrStatus('Connection interrupted. Keep this open; Odysseus will keep checking for the QR...', '');
+          return;
+        }
+        setQrStatus(e.message || 'QR polling failed', 'var(--red)');
+      }
+    };
+    const startQrPolling = async () => {
+      qrPollStartedAt = Date.now();
+      await pollQr();
+      stopWhatsAppQrPolling();
+      window.__waQrPollTimer = setInterval(pollQr, 2500);
+    };
+    const accountBody = () => ({
+      name: el('uf-wa-name').value.trim() || 'WhatsApp',
+      transport: el('uf-wa-transport').value,
+      is_default: !!el('uf-wa-default').checked,
+      display_phone_number: el('uf-wa-phone').value.trim(),
+      device_label: el('uf-wa-device').value.trim(),
+      notification_channel: el('uf-wa-notify').value,
+      ringtone: el('uf-wa-ringtone').value,
+      ringtone_volume: Number(el('uf-wa-volume').value || 70),
+      auto_download_media: !!el('uf-wa-media-auto').checked,
+      auto_transcribe_audio: !!el('uf-wa-transcribe').checked,
+    });
+    const createOrUpdateAccount = async () => {
+      const body = accountBody();
+      const url = isEdit ? `/api/whatsapp/accounts/${editId}` : '/api/whatsapp/accounts';
+      const method = isEdit ? 'PATCH' : 'POST';
+      const { r, d } = await fetchJsonRetry(url, {
+        method,
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok || d.ok === false) throw new Error(d.detail || d.error || `HTTP ${r.status}`);
+      return d.account;
+    };
+    el('uf-wa-cancel')?.addEventListener('click', () => { stopWhatsAppQrPolling(); formEl.style.display = 'none'; });
+    el('uf-wa-save')?.addEventListener('click', async () => {
+      msg('Saving...');
+      try {
+        const account = await createOrUpdateAccount();
+        msg('Saved', 'var(--green,#50fa7b)');
+        await renderList();
+        if (!isEdit && account?.id) await showWhatsAppForm(account.id);
+      } catch (e) {
+        msg(e.message || 'Failed', 'var(--red)');
+      }
+    });
+    el('uf-wa-risk')?.addEventListener('click', async () => {
+      if (!existing) return;
+      msg('Saving disclosure...');
+      await fetch(`/api/whatsapp/accounts/${editId}/risk-disclosure`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accepted: !!el('uf-wa-disclosure').checked }) });
+      msg('Disclosure saved', 'var(--green,#50fa7b)');
+      await refresh();
+    });
+    el('uf-wa-qr')?.addEventListener('click', async () => {
+      try {
+        if (!el('uf-wa-disclosure')?.checked) {
+          msg('Accept the personal automation disclosure before QR connection.', 'var(--red)');
+          return;
+        }
+        msg(isEdit ? 'Requesting QR...' : 'Creating account...');
+        const account = existing || await createOrUpdateAccount();
+        if (!account?.id) throw new Error('Account was not created');
+        activeAccountId = account.id;
+        await fetchJsonRetry(`/api/whatsapp/accounts/${account.id}/risk-disclosure`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accepted: true }),
+        });
+        const { r, d } = await fetchJsonRetry(`/api/whatsapp/accounts/${account.id}/connect-qr`, { method: 'POST', credentials: 'same-origin' }, 3);
+        if (!r.ok || d.ok === false) throw new Error(d.detail || d.error || 'QR request failed');
+        msg('Scan the QR from WhatsApp Linked devices', 'var(--green,#50fa7b)');
+        if (d.qr) await drawQr(d.qr);
+        await startQrPolling();
+        if (!isEdit) {
+          await renderList();
+          setTimeout(() => showWhatsAppForm(account.id), 1500);
+        }
+      } catch (e) {
+        msg(isFetchFailure(e) ? 'Connection interrupted. Keep this open and try Connect with QR again in a moment.' : (e.message || 'QR request failed'), 'var(--red)');
+      }
+    });
+    el('uf-wa-checks')?.addEventListener('click', async () => {
+      if (!existing) return;
+      msg('Running checks...');
+      const r = await fetch(`/api/whatsapp/accounts/${editId}/run-setup-checks`, { method: 'POST', credentials: 'same-origin' });
+      const d = await r.json().catch(() => ({}));
+      msg(d.reason || 'Checks updated', d.blocked ? 'var(--red)' : 'var(--green,#50fa7b)');
+      await refresh();
+    });
+    el('uf-wa-sync')?.addEventListener('click', async () => {
+      if (!existing) return;
+      msg('Starting WhatsApp sync...');
+      try {
+        const { r, d } = await fetchJsonRetry(`/api/whatsapp/accounts/${editId}/sync`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: false }),
+        }, 1);
+        if (!r.ok || d.ok === false) throw new Error(d.detail || d.error || `HTTP ${r.status}`);
+        const s = d.sync || {};
+        msg(`Sync ${s.status || 'started'}: ${Number(s.chats_normalized || 0)} chats, ${Number(s.messages_processed || 0)} messages`, 'var(--green,#50fa7b)');
+        await refresh();
+      } catch (e) {
+        msg(e.message || 'Sync failed', 'var(--red)');
+      }
+    });
+    if (existing && ['qr_pending', 'connecting'].includes(existing.auth_state)) {
+      startQrPolling();
+    }
+    el('uf-wa-ringtone-test')?.addEventListener('click', () => {
+      msg('Ringtone preview is handled by the browser UI', 'var(--green,#50fa7b)');
+    });
+    el('uf-wa-default-btn')?.addEventListener('click', async () => {
+      if (!existing) return;
+      await fetch(`/api/whatsapp/accounts/${editId}/set-default`, { method: 'POST', credentials: 'same-origin' });
+      msg('Default set', 'var(--green,#50fa7b)');
+      await refresh();
+    });
+    el('uf-wa-cache')?.addEventListener('click', async () => {
+      if (!existing) return;
+      await fetch(`/api/whatsapp/accounts/${editId}/delete-cache`, { method: 'POST', credentials: 'same-origin' });
+      msg('Cache cleared', 'var(--green,#50fa7b)');
+      await refresh();
+    });
+    el('uf-wa-disconnect')?.addEventListener('click', async () => {
+      if (!existing) return;
+      if (!await window.styledConfirm('Disconnect this WhatsApp account locally?', { confirmText: 'Disconnect' })) return;
+      await fetch(`/api/whatsapp/accounts/${editId}/disconnect`, { method: 'POST', credentials: 'same-origin' });
+      msg('Disconnected', 'var(--green,#50fa7b)');
+      await refresh();
+    });
+    el('uf-wa-export')?.addEventListener('click', async () => {
+      if (!existing) return;
+      const r = await fetch(`/api/whatsapp/accounts/${editId}/export`, { method: 'POST', credentials: 'same-origin' });
+      const d = await r.json().catch(() => ({}));
+      const count = d.export ? `${(d.export.conversations || []).length} conversations, ${(d.export.messages || []).length} messages` : 'No export';
+      msg(count, 'var(--green,#50fa7b)');
+    });
+  }
+
   async function showApiForm(editId) {
     let presets = {};
     try {
@@ -4300,6 +4674,7 @@ async function initUnifiedIntegrations() {
                 <option value="contacts">Contacts Import</option>
                 <option value="carddav">Contacts (CardDAV)</option>
                 <option value="email">Email (IMAP/SMTP)</option>
+                <option value="whatsapp">WhatsApp</option>
                 <option value="mcp">MCP Tool Server</option>
               </select>
             </div>
@@ -4348,8 +4723,21 @@ export function open(tab) {
   }
 }
 
+export async function openWhatsAppQrSetup(options = {}) {
+  open('integrations');
+  const deadline = Date.now() + 6000;
+  while (!window.__settingsOpenWhatsAppQrSetup && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  if (typeof window.__settingsOpenWhatsAppQrSetup === 'function') {
+    return window.__settingsOpenWhatsAppQrSetup(options);
+  }
+  throw new Error('WhatsApp settings are not ready yet');
+}
+
 export function close() {
   if (!modalEl) return;
+  stopWhatsAppQrPolling();
   // Always clear the appearance-tab body class so the rest of the app
   // doesn't keep its dimmed state if the modal got closed mid-tab.
   document.body.classList.remove('settings-appearance-open');
@@ -4367,7 +4755,8 @@ export function close() {
   }
 }
 
-const settingsModule = { open, close, initIntegrations, initUnifiedIntegrations, syncAdminVisibility, refreshAiModelEndpoints };
+const settingsModule = { open, close, openWhatsAppQrSetup, initIntegrations, initUnifiedIntegrations, syncAdminVisibility, refreshAiModelEndpoints };
 
+window.settingsModule = settingsModule;
 
 export default settingsModule;

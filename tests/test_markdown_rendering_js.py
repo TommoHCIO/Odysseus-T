@@ -31,14 +31,21 @@ def _run_markdown_case(markdown: str) -> str:
         globalThis.MutationObserver = class { observe() {} };
 
         let source = fs.readFileSync('./static/js/markdown.js', 'utf8').replace(/\\r\\n/g, '\\n');
+        source = source.replace("import uiModule from './ui.js';\\n", "");
         source = source.replace(
-          "import uiModule from './ui.js';\\n\\nvar escapeHtml = uiModule.esc;",
+          "var escapeHtml = uiModule.esc;",
           `var escapeHtml = (value) => String(value ?? '')
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');`
+        );
+        let emojiSource = fs.readFileSync('./static/js/emojiShortcodes.js', 'utf8').replace(/\\r\\n/g, '\\n');
+        emojiSource = emojiSource.replace('export default EMOJI_SHORTCODES;', '');
+        source = source.replace(
+          "import EMOJI_SHORTCODES from './emojiShortcodes.js?v=20260614emoji2';\\n",
+          emojiSource + '\\n'
         );
 
         const moduleUrl = 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
@@ -80,3 +87,20 @@ def test_ordered_lists_render_as_one_unwrapped_ol(node_available):
     assert "<p><li>" not in html
     assert "<p>Before</p>" in html
     assert "<p>After</p>" in html
+
+
+def test_emoji_shortcodes_render_as_monochrome_emoji(node_available):
+    html = _run_markdown_case(
+        "Emoji QA: :party popper: :parrot: :heart_eyes: :-1:\n\n"
+        "`:party popper:` should stay literal.\n\n"
+        "```text\n:parrot:\n```"
+    )
+
+    assert "/api/emoji/1f389.svg" in html
+    assert "/api/emoji/1f99c.svg" in html
+    assert "/api/emoji/1f60d.svg" in html
+    assert "/api/emoji/1f44e.svg" in html
+    assert "Emoji QA:" in html
+    assert ":party popper:" not in html.split("<code>")[0]
+    assert "<code>:party popper:</code>" in html
+    assert ":parrot:" in html.split("<pre><code")[1]

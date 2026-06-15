@@ -49,11 +49,21 @@ def test_admin_js_wires_mcp_marketplace_modal_and_endpoints():
     assert 'data-mcp-action="configure"' in js
     assert "config_fields" in js
     assert "server.config" in js
+    assert "include_meta=true" in js
+    assert "adm-mcp-marketplace-search" in js
+    assert "adm-mcp-marketplace-runtime" in js
+    assert "adm-mcp-marketplace-source" in js
+    assert "adm-mcp-marketplace-category" in js
+    assert "mcp-installed-badge" in js
 
 def test_style_contains_marketplace_status_colors():
     css = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
 
     assert ".mcp-marketplace-card" in css
+    assert ".mcp-marketplace-grid.hidden" in css
+    assert ".mcp-marketplace-controls" in css
+    assert ".mcp-marketplace-summary" in css
+    assert ".mcp-chip" in css
     assert ".mcp-status-green" in css
     assert ".mcp-status-yellow" in css
     assert ".mcp-status-red" in css

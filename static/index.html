@@ -215,11 +215,12 @@
     })();
   </script>
   <link rel="stylesheet" href="/static/style.css">
-  <link rel="modulepreload" href="/static/app.js">
-  <link rel="modulepreload" href="/static/js/chat.js">
+  <link rel="modulepreload" href="/static/app.js?v=20260614newchat2">
+  <link rel="modulepreload" href="/static/js/chat.js?v=20260614emoji2">
   <link rel="modulepreload" href="/static/js/ui.js">
   <link rel="modulepreload" href="/static/js/sessions.js">
-  <link rel="modulepreload" href="/static/js/markdown.js">
+  <link rel="modulepreload" href="/static/js/markdown.js?v=20260614emoji2">
+  <link rel="modulepreload" href="/static/js/emojiShortcodes.js?v=20260614emoji2">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content, viewport-fit=cover" />
 </head>
 <body>
@@ -779,7 +780,21 @@
         </div>
       </div>
 
-      <div class="section" id="models-section">
+      <div class="section" id="whatsapp-section">
+        <div class="section-header-flex">
+          <span class="section-title" id="whatsapp-section-title" style="cursor:pointer;" title="Open WhatsApp">
+            <svg class="section-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.8 8.8 0 0 1-4.1-1l-4.4 1 1.2-4.1a8.3 8.3 0 0 1-1.2-4.4 8.5 8.5 0 0 1 17 0Z"/><path d="M9.2 8.8c.2 2.9 2.1 4.9 5 5.7l1.4-1.3"/></svg>
+            <span>WhatsApp</span>
+          </span>
+          <button type="button" class="section-header-btn list-item-plus-btn" id="whatsapp-new-chat-btn" title="New WhatsApp chat">
+            <svg class="list-item-plus-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span class="list-item-plus-label">new</span>
+          </button>
+          <span id="whatsapp-unread-dot" class="sidebar-notif-dot" style="display:none"></span>
+        </div>
+      </div>
+
+      <div class="section" id="models-section" aria-hidden="true">
         <div class="section-header-flex">
           <span class="section-title"> Models</span>
           <div style="position:relative; display:inline-block;">
@@ -1068,6 +1083,30 @@
             </div>
           </div>
           <!-- Web search (magnifying glass) -->
+          <button type="button" class="input-icon-btn oracle-voice-btn" title="Start O.R.A.C.L.E." id="oracle-voice-btn" aria-label="Start O.R.A.C.L.E.">
+            <span class="oracle-voice-dot" aria-hidden="true"></span>
+          </button>
+          <span id="oracle-voice-presence" class="oracle-voice-presence" data-oracle-presence="idle" aria-live="polite">Ready</span>
+          <button type="button" id="oracle-voice-route" class="oracle-voice-route" data-oracle-route="local" aria-live="polite" aria-expanded="false" aria-controls="oracle-voice-setup">Local</button>
+          <div id="oracle-voice-setup" class="oracle-voice-setup hidden" role="dialog" aria-label="O.R.A.C.L.E. mode and credentials">
+            <div class="oracle-voice-setup-head">
+              <span>O.R.A.C.L.E.</span>
+              <span id="oracle-voice-setup-status">Ready</span>
+            </div>
+            <div class="oracle-mode-group" role="group" aria-label="O.R.A.C.L.E. mode">
+              <button type="button" class="oracle-mode-option" data-oracle-mode-option="local">Local</button>
+              <button type="button" class="oracle-mode-option" data-oracle-mode-option="hybrid">Hybrid</button>
+              <button type="button" class="oracle-mode-option" data-oracle-mode-option="cartesia">Cartesia</button>
+            </div>
+            <div class="oracle-credential-row">
+              <input id="oracle-cartesia-key" class="oracle-credential-input" type="password" autocomplete="off" placeholder="Cartesia API key" aria-label="Cartesia API key">
+              <button type="button" id="oracle-cartesia-save" class="oracle-credential-action">Save</button>
+              <button type="button" id="oracle-cartesia-test" class="oracle-credential-action">Test</button>
+            </div>
+          </div>
+          <select id="oracle-mic-select" class="oracle-mic-select" aria-label="O.R.A.C.L.E. microphone" title="O.R.A.C.L.E. microphone">
+            <option value="">Microphone</option>
+          </select>
           <button type="button" class="input-icon-btn" title="Web search" id="web-toggle-btn" data-mode-tool="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -1335,6 +1374,26 @@
             <button class="memory-toolbar-btn active" data-mcp-marketplace-tab="browse">Browse</button>
             <button class="memory-toolbar-btn" data-mcp-marketplace-tab="installed">Installed</button>
           </div>
+          <div class="mcp-marketplace-controls">
+            <input id="adm-mcp-marketplace-search" class="memory-search" type="search" placeholder="Search servers, publishers, capabilities" aria-label="Search MCP Marketplace">
+            <select id="adm-mcp-marketplace-runtime" class="memory-toolbar-btn" aria-label="Filter by runtime">
+              <option value="">All runtimes</option>
+            </select>
+            <select id="adm-mcp-marketplace-source" class="memory-toolbar-btn" aria-label="Filter by source">
+              <option value="">All sources</option>
+            </select>
+            <select id="adm-mcp-marketplace-category" class="memory-toolbar-btn" aria-label="Filter by category">
+              <option value="">All categories</option>
+            </select>
+            <select id="adm-mcp-marketplace-sort" class="memory-toolbar-btn" aria-label="Sort MCP Marketplace">
+              <option value="name">Name</option>
+              <option value="publisher">Publisher</option>
+              <option value="runtime">Runtime</option>
+              <option value="source">Source</option>
+            </select>
+          </div>
+          <div id="adm-mcp-marketplace-summary" class="mcp-marketplace-summary"></div>
+          <div id="adm-mcp-marketplace-sources" class="mcp-marketplace-sourcebar"></div>
           <div id="adm-mcp-marketplace-msg" class="adm-ep-inline-msg"></div>
           <div id="adm-mcp-marketplace-browse" class="mcp-marketplace-grid"></div>
           <div id="adm-mcp-marketplace-installed" class="mcp-marketplace-grid hidden"></div>
@@ -1712,9 +1771,9 @@
                 <input type="checkbox" checked data-ui-key="email-section"><span class="vis-switch"></span>
               </label>
               <label class="vis-row">
-                <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></span>
-                <span class="vis-label">Models <span class="vis-hint">Model selector &amp; quick-chat</span></span>
-                <input type="checkbox" checked data-ui-key="models-section"><span class="vis-switch"></span>
+                <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.8 8.8 0 0 1-4.1-1l-4.4 1 1.2-4.1a8.3 8.3 0 0 1-1.2-4.4 8.5 8.5 0 0 1 17 0Z"/><path d="M9.2 8.8c.2 2.9 2.1 4.9 5 5.7l1.4-1.3"/></svg></span>
+                <span class="vis-label">WhatsApp</span>
+                <input type="checkbox" checked data-ui-key="whatsapp-section"><span class="vis-switch"></span>
               </label>
               <label class="vis-row">
                 <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
@@ -1821,6 +1880,11 @@
           <div class="admin-card" style="padding-bottom:6px;">
             <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>Chat Bar</h2>
             <div class="vis-toggles">
+              <label class="vis-row">
+                <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 18v4"/><path d="M8 22h8"/></svg></span>
+                <span class="vis-label">O.R.A.C.L.E.</span>
+                <input type="checkbox" checked data-ui-key="oracle-voice-btn"><span class="vis-switch"></span>
+              </label>
               <label class="vis-row">
                 <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
                 <span class="vis-label">Web Search</span>
@@ -2281,7 +2345,7 @@
 <!-- Load modules in this order -->
 <script type="module" src="/static/js/storage.js"></script>
 <script type="module" src="/static/js/ui.js"></script>
-<script type="module" src="/static/js/markdown.js"></script>
+<script type="module" src="/static/js/markdown.js?v=20260614emoji2"></script>
 <script type="module" src="/static/js/dragSort.js"></script>
 <script type="module" src="/static/js/sessions.js"></script>
 <script type="module" src="/static/js/memory.js"></script>
@@ -2298,19 +2362,20 @@
 <script type="module" src="/static/js/tts-ai.js"></script>
 <script type="module" src="/static/js/document.js"></script>
 <script type="module" src="/static/js/gallery.js"></script>
-<script type="module" src="/static/js/chatRenderer.js"></script>
+<script type="module" src="/static/js/chatRenderer.js?v=20260614emoji2"></script>
 <script type="module" src="/static/js/codeRunner.js"></script>
 <script type="module" src="/static/js/chatStream.js"></script>
-<script type="module" src="/static/js/chat.js?v=20260520m"></script>
+<script type="module" src="/static/js/chat.js?v=20260614emoji2"></script>
 <script type="module" src="/static/js/cookbook.js"></script>
 <script type="module" src="/static/js/search-chat.js"></script>
 <script type="module" src="/static/js/compare/index.js"></script>
 <script type="module" src="/static/js/theme.js"></script>
 <script type="module" src="/static/js/censor.js"></script>
+<script src="/static/lib/qrcode.min.js"></script>
 <script type="module" src="/static/js/settings.js"></script>
 <script type="module" src="/static/js/admin.js"></script>
 <script type="module" src="/static/js/assistant.js"></script>
-<script type="module" src="/static/app.js"></script>  <!-- app.js must be LAST -->
+<script type="module" src="/static/app.js?v=20260614newchat2"></script>  <!-- app.js must be LAST -->
 <script type="module" src="/static/js/init.js"></script>
 <script type="module" src="/static/js/a11y.js"></script>
 <script nonce="{{CSP_NONCE}}">if('serviceWorker' in navigator){navigator.serviceWorker.register('/static/sw.js').catch(()=>{});}</script>

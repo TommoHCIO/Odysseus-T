@@ -8,16 +8,17 @@
 import Storage from './storage.js';
 import uiModule from './ui.js';
 import sessionModule from './sessions.js';
-import chatRenderer from './chatRenderer.js';
+import chatRenderer from './chatRenderer.js?v=20260614emoji2';
 import chatStream from './chatStream.js';
 import { addAITTSButton } from './tts-ai.js';
-import markdownModule from './markdown.js';
+import markdownModule from './markdown.js?v=20260614emoji2';
 import spinnerModule from './spinner.js';
 import presetsModule from './presets.js';
 import fileHandlerModule from './fileHandler.js';
 import searchModule from './search.js';
 import documentModule from './document.js';
 import * as emailInbox from './emailInbox.js';
+import * as whatsappInbox from './whatsappInbox.js';
 import codeRunnerModule from './codeRunner.js';
 import slashCommands, { initSlashCommands, isCommand, handleSlashCommand, handleSetupInput, handleSetupWizard, typewriterInto } from './slashCommands.js';
 import createResearchSynapse from './researchSynapse.js';
@@ -53,6 +54,16 @@ import createResearchSynapse from './researchSynapse.js';
   var _applyModelColor = chatRenderer.applyModelColor;
   // Per-session research tracking (supports concurrent research across sessions)
   const _researchingStreamIds = new Set();
+  const _oracleResearchNarrated = new Set();
+  const ORACLE_RESEARCH_PHASE_LABELS = {
+    probing: 'verifying the research model',
+    planning: 'planning the research strategy',
+    searching: 'searching for sources',
+    reading: 'reading sources',
+    analyzing: 'analyzing findings',
+    writing: 'writing the report',
+    error: 'handling a research error',
+  };
   let _researchTimerEl = null, _researchTimerInterval = null;
   let _researchStartTime = 0, _researchAvgDuration = null;
   let _researchSynapse = null;
@@ -104,6 +115,210 @@ import createResearchSynapse from './researchSynapse.js';
 
   // stripToolBlocks and roleTimestamp now in chatRenderer.js
   var stripToolBlocks = chatRenderer.stripToolBlocks;
+  const ORACLE_ANSWER_HIGHLIGHT_MAX_CHARS = 360;
+  const ORACLE_ANSWER_HIGHLIGHT_MAX_SENTENCES = 3;
+  const ORACLE_ANSWER_SUMMARY_CUE = /\b(?:summary|result|done|ready|fixed|added|changed|important|key|main|caveat|warning|blocked|next|recommend|use|try|verify|tested|passed|failed)\b/i;
+  const ORACLE_ANSWER_DEEMPHASIS_CUE = /\b(?:here is|below is|for example|the code|the command|the file|stack trace|log output)\b/i;
+
+  function _requestOracleNarration(eventType, message, options = {}) {
+    const runtime = window.oracleVoiceRuntime;
+    const status = runtime && runtime.status ? runtime.status : null;
+    if (!runtime || !status || !status.active || status.state === 'cancelled' || status.state === 'interrupted') return false;
+    window.dispatchEvent(new CustomEvent('oraclevoice:narration-request', {
+      detail: {
+        source: 'chat_stream',
+        eventType: eventType,
+        message: message,
+        speak: options.speak === true,
+        requireActive: true,
+      },
+    }));
+    return true;
+  }
+
+  function _isOracleVoiceTranscriptSource(rawSource) {
+    if (!rawSource) return false;
+    try {
+      const parsed = typeof rawSource === 'string' ? JSON.parse(rawSource) : rawSource;
+      if (!parsed || typeof parsed !== 'object') return false;
+      const source = typeof parsed.source === 'string' ? parsed.source : '';
+      return parsed.submitToChat === true && source.startsWith('voice.');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function _oracleIsStructuredSpeakableLine(line) {
+    const raw = typeof line === 'string' ? line.trim() : '';
+    if (!raw) return true;
+    const prose = raw
+      .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!prose) return true;
+    if (/^\|.*\|$/.test(prose) || /^[\s|:-]{3,}$/.test(prose)) return true;
+    if (/[├└│]/.test(prose)) return true;
+    if (/^\s*(?:[$>]|PS\s|C:\\|\/|\.\/|\.\.\/)/i.test(prose)) return true;
+    if (/^(?:import|export|const|let|var|function|class|def|return|from|if|for|while|try|catch|async|await)\b/.test(prose)) return true;
+    if (/(?:^|\s)(?:[\w.-]+[\\/]){1,}[\w.-]+/.test(prose)) return true;
+    if (/^\s*(?:GET|POST|PUT|PATCH|DELETE)\s+\//.test(prose)) return true;
+    const syntaxChars = (prose.match(/[{}[\]();=<>`$\\]/g) || []).length;
+    if (prose.length >= 24 && syntaxChars / prose.length > 0.13) return true;
+    const wordChars = (prose.match(/[A-Za-z]/g) || []).length;
+    if (prose.length >= 24 && wordChars / prose.length < 0.55) return true;
+    return false;
+  }
+
+  function _oracleCleanSpeakableAssistantText(rawText) {
+    let text = stripToolBlocks(typeof rawText === 'string' ? rawText : '');
+    if (markdownModule && typeof markdownModule.hasUnclosedThinkTag === 'function' && markdownModule.hasUnclosedThinkTag(text)) {
+      return '';
+    }
+    if (markdownModule && typeof markdownModule.extractThinkingBlocks === 'function') {
+      try {
+        const extracted = markdownModule.extractThinkingBlocks(text);
+        if (extracted && typeof extracted.content === 'string') text = extracted.content;
+      } catch (_) {}
+    }
+    text = text
+      .replace(/<think(?:ing)?(?:\s+[^>]*)?>[\s\S]*?<\/think(?:ing)?>/gi, '\n')
+      .replace(/```[\s\S]*?```/g, '\n')
+      .replace(/~~~[\s\S]*?~~~/g, '\n')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/https?:\/\/\S+/gi, ' ');
+    const proseLines = text
+      .split(/\r?\n+/)
+      .map(line => line
+        .replace(/[#*_>~|]/g, ' ')
+        .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '')
+        .replace(/\s+/g, ' ')
+        .trim())
+      .filter(line => line && !_oracleIsStructuredSpeakableLine(line));
+    return proseLines
+      .map(line => /[.!?]$/.test(line) ? line : `${line}.`)
+      .join(' ')
+      .replace(/\s+([.,!?;:])/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function _oracleTrimAnswerText(text, maxChars = ORACLE_ANSWER_HIGHLIGHT_MAX_CHARS) {
+    const clean = typeof text === 'string' ? text.trim() : '';
+    if (!clean || clean.length <= maxChars) return clean;
+    return `${clean.slice(0, maxChars).replace(/\s+\S*$/, '')}.`;
+  }
+
+  function _oracleAnswerSentenceScore(sentence, index) {
+    const item = typeof sentence === 'string' ? sentence.trim() : '';
+    if (!item) return -100;
+    let score = Math.max(0, 4 - Math.min(index, 4));
+    if (ORACLE_ANSWER_SUMMARY_CUE.test(item)) score += 6;
+    if (/\b(?:but|however|because|so|therefore)\b/i.test(item)) score += 2;
+    if (/\b(?:you can|you should|I changed|I fixed|I added|I verified|I tested)\b/i.test(item)) score += 3;
+    if (ORACLE_ANSWER_DEEMPHASIS_CUE.test(item)) score -= 4;
+    if (item.length > 220) score -= 2;
+    return score;
+  }
+
+  function _oraclePickAnswerNarrationSentences(sentences) {
+    const candidates = [];
+    for (let index = 0; index < sentences.length; index += 1) {
+      const item = String(sentences[index] || '').replace(/\s+/g, ' ').trim();
+      if (item.length < 8 || _oracleIsStructuredSpeakableLine(item)) continue;
+      candidates.push({ item, index, score: _oracleAnswerSentenceScore(item, index) });
+    }
+    if (!candidates.length) return [];
+    const priority = candidates
+      .filter(candidate => candidate.score >= 6)
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, ORACLE_ANSWER_HIGHLIGHT_MAX_SENTENCES)
+      .sort((left, right) => left.index - right.index);
+    const picked = priority.length
+      ? priority
+      : candidates.slice(0, ORACLE_ANSWER_HIGHLIGHT_MAX_SENTENCES);
+    return picked.map(candidate => candidate.item);
+  }
+
+  function _oracleBuildAnswerNarration(rawText) {
+    const clean = _oracleCleanSpeakableAssistantText(rawText);
+    if (!clean) return '';
+    const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [clean];
+    const picked = _oraclePickAnswerNarrationSentences(sentences);
+    return _oracleTrimAnswerText(picked.join(' '));
+  }
+
+  function _oracleSpeakAssistantHighlights(rawText) {
+    const runtime = window.oracleVoiceRuntime;
+    const status = runtime && runtime.status ? runtime.status : null;
+    if (!runtime || !status || !status.active || status.state === 'cancelled') return false;
+    const spoken = _oracleBuildAnswerNarration(rawText);
+    if (!spoken) return false;
+    runtime.speak(spoken, { lane: 'answer', mode: 'fast', interrupt: true, toast: false }).catch(() => {});
+    return true;
+  }
+
+  function _oracleToolLabel(tool) {
+    const raw = typeof tool === 'string' ? tool : '';
+    const normalized = raw
+      .replace(/[^a-zA-Z0-9 _.-]+/g, ' ')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return normalized.slice(0, 40) || 'tool';
+  }
+
+  function _requestOracleToolStarted(tool) {
+    const label = _oracleToolLabel(tool);
+    return _requestOracleNarration('tool.started', `I am using ${label}.`, { speak: true });
+  }
+
+  function _requestOracleToolFinished(tool, ok) {
+    const label = _oracleToolLabel(tool);
+    return _requestOracleNarration(ok ? 'tool.completed' : 'tool.failed', ok ? `The ${label} step finished.` : `The ${label} step failed.`, { speak: true });
+  }
+
+  function _oracleResearchKey(streamSessionId, eventType) {
+    return `${streamSessionId || 'foreground'}:${eventType}`;
+  }
+
+  function _requestOracleResearchProgress(data, streamSessionId) {
+    const phase = data && typeof data.phase === 'string' ? data.phase : '';
+    const phaseLabel = ORACLE_RESEARCH_PHASE_LABELS[phase];
+    if (!phaseLabel) return false;
+    const key = _oracleResearchKey(streamSessionId, `research.progress:${phase}`);
+    if (_oracleResearchNarrated.has(key)) return false;
+    _oracleResearchNarrated.add(key);
+    return _requestOracleNarration('research.progress', `Research is ${phaseLabel}.`, { speak: true });
+  }
+
+  function _requestOracleResearchSourcesReady(streamSessionId) {
+    const key = _oracleResearchKey(streamSessionId, 'research.sources.ready');
+    if (_oracleResearchNarrated.has(key)) return false;
+    _oracleResearchNarrated.add(key);
+    return _requestOracleNarration('research.sources.ready', 'Research sources are ready.', { speak: true });
+  }
+
+  function _requestOracleResearchFindingsReady(streamSessionId) {
+    const key = _oracleResearchKey(streamSessionId, 'research.findings.ready');
+    if (_oracleResearchNarrated.has(key)) return false;
+    _oracleResearchNarrated.add(key);
+    return _requestOracleNarration('research.findings.ready', 'Research findings are ready.', { speak: true });
+  }
+
+  function _requestOracleResearchCompleted(streamSessionId) {
+    const key = _oracleResearchKey(streamSessionId, 'research.completed');
+    if (_oracleResearchNarrated.has(key)) return false;
+    _oracleResearchNarrated.add(key);
+    return _requestOracleNarration('research.completed', 'The research report is ready.', { speak: true });
+  }
+
+  function _clearOracleResearchNarration(streamSessionId) {
+    const prefix = `${streamSessionId || 'foreground'}:`;
+    for (const key of Array.from(_oracleResearchNarrated)) {
+      if (key.startsWith(prefix)) _oracleResearchNarrated.delete(key);
+    }
+  }
 
   function _normalizeEndpointForCompare(url) {
     if (!url) return '';
@@ -156,6 +371,7 @@ import createResearchSynapse from './researchSynapse.js';
     initSlashCommands({ apiBase, isStreaming: () => isStreaming });
     // Initialize email inbox
     emailInbox.init(documentModule);
+    whatsappInbox.init(documentModule);
     // Wire the slash-command autocomplete popup on the chat composer. The
     // dispatcher already handles the typed command — this just surfaces the
     // registry as a discoverable menu when the user starts a message with /.
@@ -515,6 +731,9 @@ import createResearchSynapse from './researchSynapse.js';
     _streamSessionId = streamSessionId;
     const streamQuery = msg;
     _lastReaderActivity = Date.now();
+    const voiceTranscriptSource = window.__odysseusNextVoiceTranscriptSource || null;
+    const voiceTurnShouldSpeakResponse = _isOracleVoiceTranscriptSource(voiceTranscriptSource);
+    _requestOracleNarration('chat.stream.started', 'I am working on your chat request.', { speak: !voiceTurnShouldSpeakResponse });
 
     // Acquire Web Lock to hint browser not to discard this tab while streaming
     if (navigator.locks) {
@@ -790,6 +1009,25 @@ import createResearchSynapse from './researchSynapse.js';
         fd.append('preset_id', presetsModule.getSelectedPreset());
       }
 
+      const sendOverrides = window.__odysseusNextSendOverrides || null;
+      if (sendOverrides) {
+        delete window.__odysseusNextSendOverrides;
+        if (sendOverrides.mode) fd.set('mode', sendOverrides.mode);
+        if (sendOverrides.allow_web_search) {
+          fd.delete('use_web');
+          fd.delete('use_research');
+          fd.set('allow_web_search', 'true');
+        }
+        if (sendOverrides.allow_bash) {
+          fd.set('allow_bash', 'true');
+        }
+      }
+
+      if (voiceTranscriptSource) {
+        delete window.__odysseusNextVoiceTranscriptSource;
+        fd.append('voice_transcript_source', voiceTranscriptSource);
+      }
+
 
       const abortCtrl = new AbortController();
       abortCtrl._reason = '';
@@ -985,7 +1223,12 @@ import createResearchSynapse from './researchSynapse.js';
       let isThinking = false;
       let thinkingStartTime = null;
       // Streaming TTS: synthesize sentence-by-sentence during streaming
-      const streamingTTS = !!(window.aiTTSManager && window.aiTTSManager.autoPlay && window.aiTTSManager.available);
+      const streamingTTS = !!(
+        window.aiTTSManager
+        && window.aiTTSManager.autoPlay
+        && window.aiTTSManager.available
+        && !voiceTurnShouldSpeakResponse
+      );
       if (streamingTTS) window.aiTTSManager.streamingStart();
       // Multi-bubble agent tracking
       let roundHolder = holder;       // Current AI text bubble (changes per round)
@@ -1633,6 +1876,7 @@ import createResearchSynapse from './researchSynapse.js';
                 var _rSid = sessionModule && sessionModule.getCurrentSessionId();
                 if (_rSid && sessionModule.markResearching) sessionModule.markResearching(_rSid);
                 const rp = json.data;
+                _requestOracleResearchProgress(rp, streamSessionId);
                 // Start research timer + synapse on first progress event
                 if (!_researchTimerEl && spinner && spinner.element) {
                   _researchStartTime = rp.started_at ? rp.started_at * 1000 : Date.now();
@@ -1705,6 +1949,7 @@ import createResearchSynapse from './researchSynapse.js';
                   continue;
                 }
                 // Research done — clean up timer, show sources box, then spinner for LLM response
+                _requestOracleResearchSourcesReady(streamSessionId);
                 _clearResearchTimer();
                 holder._researchSources = json.data;
                 var _rSid2 = sessionModule && sessionModule.getCurrentSessionId();
@@ -1724,14 +1969,17 @@ import createResearchSynapse from './researchSynapse.js';
                 }
                 if (json.data && json.data.length > 0) {
                   _findingsData = json.data;
+                  _requestOracleResearchFindingsReady(streamSessionId);
                 }
               } else if (json.type === 'research_done') {
+                _requestOracleResearchCompleted(streamSessionId);
                 // Research complete — reload session to show the persisted report
                 _clearResearchTimer();
                 if (sessionModule && sessionModule.clearResearching) {
                   sessionModule.clearResearching(streamSessionId);
                 }
                 _researchingStreamIds.delete(streamSessionId);
+                _clearOracleResearchNarration(streamSessionId);
                 // Small delay then reload session history which includes the full report
                 setTimeout(async () => {
                   // Don't yank the user back to this chat if they've navigated
@@ -1940,6 +2188,8 @@ import createResearchSynapse from './researchSynapse.js';
 
                 // Track tool name for contextual spinner labels
                 _lastToolName = json.tool || '';
+                const narrationToolLabel = _oracleToolLabel(json.tool);
+                _requestOracleToolStarted(narrationToolLabel);
 
                 // --- Thread timeline: group tools in a thread container ---
                 const cmd = json.command || '';
@@ -2058,6 +2308,8 @@ import createResearchSynapse from './researchSynapse.js';
                   if (json.output && json.output.trim()) {
                     outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(json.output)}</pre></details>`;
                   }
+                  const narrationToolLabel = _oracleToolLabel(json.tool);
+                  _requestOracleToolFinished(narrationToolLabel, ok);
                   const cmdHtml2 = cmd ? `<pre class="agent-thread-cmd">${esc(cmd)}</pre>` : '';
                   // Preserve the user's .open choice across the innerHTML
                   // rewrite \u2014 otherwise expanding a running tool collapses
@@ -2290,6 +2542,7 @@ import createResearchSynapse from './researchSynapse.js';
 
       const _isBgFinal = (sessionModule.getCurrentSessionId() !== streamSessionId) || _backgroundStreams.has(streamSessionId);
       if (!_isBgFinal) {
+        document.querySelectorAll('#chat-history .msg-ai.streaming').forEach(msg => msg.classList.remove('streaming'));
         finalMeta = sessionModule.getSessions().find(s => s.id === sessionModule.getCurrentSessionId());
         finalModelName = _shortModel(metrics?.model || finalMeta?.model);
         // Preserve suffix (e.g. "Research") if set by model_info event
@@ -2471,7 +2724,7 @@ import createResearchSynapse from './researchSynapse.js';
           addAITTSButton(footerTarget, accumulated);
         }
         // TTS auto-play: streaming mode flushes remaining text, non-streaming enqueues full message
-        if (accumulated && window.aiTTSManager && window.aiTTSManager.autoPlay) {
+        if (accumulated && window.aiTTSManager && window.aiTTSManager.autoPlay && !voiceTurnShouldSpeakResponse) {
           const ttsBtn = holder.querySelector('.ai-tts-button');
           if (ttsBtn) {
             var ICON_PLAY_TTS = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
@@ -2504,6 +2757,12 @@ import createResearchSynapse from './researchSynapse.js';
         }
         // Attach variant navigation if this was a regeneration
         _attachVariantNav(footerTarget);
+        if (accumulated) {
+          const spokeAnswerHighlights = voiceTurnShouldSpeakResponse ? _oracleSpeakAssistantHighlights(accumulated) : false;
+          if (!spokeAnswerHighlights) {
+            _requestOracleNarration('chat.stream.completed', 'The chat response is ready.', { speak: true });
+          }
+        }
 
         // Merge with previous stopped message if this was a continue
         if (_pendingContinue) {

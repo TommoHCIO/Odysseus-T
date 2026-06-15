@@ -19,6 +19,47 @@ let _clockInterval = null;
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+const ORACLE_TASK_RUN_MESSAGES = {
+  started: 'A scheduled task started.',
+  completed: 'The scheduled task finished.',
+  failed: 'The scheduled task failed.',
+  stopped: 'The scheduled task stopped.',
+};
+
+function _requestOracleTaskRunNarration(eventType, messageKey, options = {}) {
+  const runtime = window.oracleVoiceRuntime;
+  const status = runtime && runtime.status ? runtime.status : null;
+  if (!runtime || !status || !status.active || status.state === 'cancelled' || status.state === 'interrupted') return false;
+  const message = ORACLE_TASK_RUN_MESSAGES[messageKey] || ORACLE_TASK_RUN_MESSAGES.completed;
+  window.dispatchEvent(new CustomEvent('oraclevoice:narration-request', {
+    detail: {
+      source: 'scheduled_task',
+      eventType: eventType,
+      message: message,
+      taskRunPhase: messageKey,
+      speak: options.speak === true,
+      requireActive: true,
+    },
+  }));
+  return true;
+}
+
+function _requestOracleTaskRunStarted() {
+  return _requestOracleTaskRunNarration('task.run.started', 'started', { speak: true });
+}
+
+function _requestOracleTaskRunCompleted() {
+  return _requestOracleTaskRunNarration('task.run.completed', 'completed', { speak: true });
+}
+
+function _requestOracleTaskRunFailed() {
+  return _requestOracleTaskRunNarration('task.run.failed', 'failed', { speak: true });
+}
+
+function _requestOracleTaskRunStopped() {
+  return _requestOracleTaskRunNarration('task.run.stopped', 'stopped', { speak: true });
+}
+
 // ---- API ----
 
 async function _fetchTasks() {
@@ -1585,6 +1626,7 @@ async function _doResume(id) {
 async function _doRunNow(id, force = false) {
   try {
     await _runNow(id, force);
+    _requestOracleTaskRunStarted();
     if (uiModule) uiModule.showToast(force ? 'Task triggered in parallel' : 'Task triggered');
   } catch (e) {
     // Mirror the polling notification surface so the user sees the same kind
@@ -2026,6 +2068,7 @@ function _wireActivityRows(list) {
       if (!entry?.taskId) return;
       try {
         await _stopTask(entry.taskId);
+        _requestOracleTaskRunStopped();
         uiModule.showToast('Task stopped');
         _renderActivityView();
       } catch (err) {
@@ -2657,6 +2700,8 @@ async function _pollTaskNotifications() {
     const notes = data.notifications || [];
     for (const n of notes) {
       const ok = n.status === 'success';
+      if (ok) _requestOracleTaskRunCompleted();
+      else _requestOracleTaskRunFailed();
       // Tasks with output_target='notification' carry the result text in `body`
       // — show it as a real browser Notification (richer than a toast). Falls
       // back to a toast when permission is denied or unavailable.

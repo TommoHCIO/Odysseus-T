@@ -160,6 +160,38 @@ function _esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[c]));
 }
 
+function _skillCommandQuery(query) {
+  const match = String(query || '').match(/^\/(?:skill|use-skill|invoke-skill)(?:\s+(.*))?$/i);
+  if (!match) return null;
+  return (match[1] || '').replace(/^["']/, '').trim();
+}
+
+async function _skillAutocompleteItems(term) {
+  const res = await fetch('/api/skills/invoke', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: term || '', include_markdown: false }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => ({}));
+  const byName = new Map();
+  if (data.found && data.skill?.name) byName.set(data.skill.name, data.skill);
+  for (const skill of data.recommendations || []) {
+    if (skill?.name && !byName.has(skill.name)) byName.set(skill.name, skill);
+  }
+  return [...byName.values()].slice(0, MAX_VISIBLE).map((skill) => {
+    const name = skill.name || skill.id || '';
+    return {
+      token: `/skill "${name}"`,
+      aliases: [],
+      category: 'AI Tools',
+      help: skill.description || 'Invoke this SKILL.md',
+      usage: '/skill "skill name" [request]',
+    };
+  });
+}
+
 export function initSlashAutocomplete(textarea) {
   if (!textarea || textarea._slashAcWired) return;
   textarea._slashAcWired = true;
@@ -169,6 +201,7 @@ export function initSlashAutocomplete(textarea) {
   let visible = false;
   let items = [];
   let selectedIdx = 0;
+  let refreshSeq = 0;
 
   const hide = () => {
     if (!visible) return;
@@ -183,7 +216,8 @@ export function initSlashAutocomplete(textarea) {
     _position(popup, textarea);
   };
 
-  const refresh = () => {
+  const refresh = async () => {
+    const seq = ++refreshSeq;
     const v = textarea.value;
     // Only trigger when the message starts with "/" (no leading space) and
     // contains at most one space after the command (so subcommands work).
@@ -191,6 +225,33 @@ export function initSlashAutocomplete(textarea) {
     // the menu hides — we don't autocomplete mid-sentence.
     if (!v.startsWith('/') || v.includes('\n')) { hide(); return; }
     const query = v.trim();
+    const skillTerm = _skillCommandQuery(query);
+    if (skillTerm !== null) {
+      try {
+        items = await _skillAutocompleteItems(skillTerm);
+      } catch (_) {
+        items = [];
+      }
+      if (seq !== refreshSeq) return;
+      if (!items.length) { hide(); return; }
+      selectedIdx = 0;
+      show();
+      _render(popup, items, selectedIdx, query);
+      return;
+    }
+
+    const subcommandPrompt = v.match(/^\/([^\s]+)\s+$/);
+    if (subcommandPrompt) {
+      const prefix = `/${subcommandPrompt[1].toLowerCase()} `;
+      items = all.filter(e => e.token.toLowerCase().startsWith(prefix));
+      if (items.length) {
+        selectedIdx = 0;
+        show();
+        _render(popup, items.slice(0, MAX_VISIBLE), selectedIdx, v);
+        return;
+      }
+    }
+
     items = all
       .map(e => ({ e, s: _scoreMatch(e, query) }))
       .filter(x => x.s > 0)

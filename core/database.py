@@ -323,6 +323,218 @@ class EmailAccount(TimestampMixin, Base):
     )
 
 
+class WhatsAppAccount(TimestampMixin, Base):
+    """A configured WhatsApp integration account.
+
+    Personal linked-device transports store only encrypted session metadata in
+    the DB; browser profiles/cookies live in owner/account-scoped host paths.
+    """
+    __tablename__ = "whatsapp_accounts"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    name = Column(String, nullable=False, default="WhatsApp")
+    enabled = Column(Boolean, default=True, nullable=False)
+    is_default = Column(Boolean, default=False, nullable=False)
+    transport = Column(String, nullable=False, default="web_client")
+
+    display_phone_number = Column(String, nullable=True)
+    device_label = Column(String, nullable=True)
+    risk_disclosure_accepted = Column(Boolean, default=False, nullable=False)
+    auth_state = Column(String, nullable=False, default="risk_disclosure_required")
+    setup_state = Column(String, nullable=False, default="not_configured")
+    setup_checks_json = Column(Text, nullable=True)
+    diagnostics_json = Column(Text, nullable=True)
+
+    session_path = Column(String, nullable=True)
+    chrome_profile_path = Column(String, nullable=True)
+    session_secret = Column(EncryptedText, nullable=True)
+    browser_secret = Column(EncryptedText, nullable=True)
+
+    business_account_id = Column(String, nullable=True)
+    phone_number_id = Column(String, nullable=True)
+    access_token = Column(EncryptedText, nullable=True)
+    app_secret = Column(EncryptedText, nullable=True)
+    webhook_verify_token = Column(EncryptedText, nullable=True)
+    graph_api_version = Column(String, nullable=True, default="v23.0")
+
+    notification_channel = Column(String, nullable=False, default="sidebar_only")
+    ringtone = Column(String, nullable=False, default="odysseus-classic")
+    ringtone_volume = Column(Integer, nullable=False, default=70)
+    auto_download_media = Column(Boolean, default=True, nullable=False)
+    auto_download_media_types_json = Column(Text, nullable=True)
+    auto_transcribe_audio = Column(Boolean, default=False, nullable=False)
+    media_retention_policy_json = Column(Text, nullable=True)
+    call_settings_json = Column(Text, nullable=True)
+
+    conversations = relationship("WhatsAppConversation", back_populates="account", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_whatsapp_accounts_owner_default", "owner", "is_default"),
+        Index("ix_whatsapp_accounts_owner_transport", "owner", "transport"),
+    )
+
+
+class WhatsAppConversation(TimestampMixin, Base):
+    __tablename__ = "whatsapp_conversations"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    account_id = Column(String, ForeignKey("whatsapp_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    wa_id = Column(String, nullable=False)
+    conversation_type = Column(String, nullable=False, default="direct")
+    profile_name = Column(String, nullable=True)
+    group_name = Column(String, nullable=True)
+    linked_contact_id = Column(String, nullable=True)
+    last_message_at = Column(DateTime, nullable=True, index=True)
+    unread_count = Column(Integer, default=0, nullable=False)
+    is_archived = Column(Boolean, default=False, nullable=False)
+    is_pinned = Column(Boolean, default=False, nullable=False)
+    is_muted = Column(Boolean, default=False, nullable=False)
+    last_inbound_at = Column(DateTime, nullable=True)
+    service_window_expires_at = Column(DateTime, nullable=True)
+    needs_reply = Column(Boolean, default=False, nullable=False)
+    urgency_score = Column(Integer, default=0, nullable=False)
+    send_blocked_by_opt_out = Column(Boolean, default=False, nullable=False)
+    advanced_privacy_detected = Column(Boolean, default=False, nullable=False)
+    provider_state_json = Column(Text, nullable=True)
+
+    account = relationship("WhatsAppAccount", back_populates="conversations")
+    messages = relationship("WhatsAppMessage", back_populates="conversation", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_whatsapp_conversations_owner_account", "owner", "account_id"),
+        Index("ix_whatsapp_conversations_account_wa", "account_id", "wa_id"),
+        Index("ix_whatsapp_conversations_owner_last", "owner", "last_message_at"),
+    )
+
+
+class WhatsAppMessage(TimestampMixin, Base):
+    __tablename__ = "whatsapp_messages"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    account_id = Column(String, ForeignKey("whatsapp_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(String, ForeignKey("whatsapp_conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider_message_id = Column(String, nullable=True, index=True)
+    sender_wa_id = Column(String, nullable=True)
+    sender_display_name = Column(String, nullable=True)
+    direction = Column(String, nullable=False, default="inbound")
+    message_type = Column(String, nullable=False, default="text")
+    body = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="received")
+    sent_at = Column(DateTime, nullable=True)
+    received_at = Column(DateTime, nullable=True)
+    read_at = Column(DateTime, nullable=True)
+    edited_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)
+    quoted_message_id = Column(String, nullable=True)
+    reaction_to_message_id = Column(String, nullable=True)
+    reaction_emoji = Column(String, nullable=True)
+    media_id = Column(String, nullable=True, index=True)
+    raw_payload = Column(EncryptedText, nullable=True)
+    raw_payload_expires_at = Column(DateTime, nullable=True)
+
+    conversation = relationship("WhatsAppConversation", back_populates="messages")
+
+    __table_args__ = (
+        Index("ix_whatsapp_messages_conversation_time", "conversation_id", "sent_at", "received_at"),
+        Index("ix_whatsapp_messages_owner_account", "owner", "account_id"),
+        Index("ix_whatsapp_messages_account_provider", "account_id", "provider_message_id"),
+    )
+
+
+class WhatsAppMedia(TimestampMixin, Base):
+    __tablename__ = "whatsapp_media"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    account_id = Column(String, ForeignKey("whatsapp_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    message_id = Column(String, ForeignKey("whatsapp_messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    provider_media_id = Column(String, nullable=True, index=True)
+    media_type = Column(String, nullable=False, default="file")
+    mime_type = Column(String, nullable=True)
+    filename = Column(String, nullable=True)
+    local_path = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    sha256 = Column(String, nullable=True, index=True)
+    download_status = Column(String, nullable=False, default="pending")
+    transcript = Column(Text, nullable=True)
+    saved = Column(Boolean, default=False, nullable=False)
+    keep_forever = Column(Boolean, default=False, nullable=False)
+    retention_expires_at = Column(DateTime, nullable=True)
+    raw_payload = Column(EncryptedText, nullable=True)
+
+    __table_args__ = (
+        Index("ix_whatsapp_media_owner_account", "owner", "account_id"),
+    )
+
+
+class WhatsAppCallEvent(TimestampMixin, Base):
+    __tablename__ = "whatsapp_call_events"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    account_id = Column(String, ForeignKey("whatsapp_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(String, ForeignKey("whatsapp_conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+    provider_call_id = Column(String, nullable=True, index=True)
+    call_type = Column(String, nullable=False, default="voice")
+    direction = Column(String, nullable=False, default="incoming")
+    state = Column(String, nullable=False, default="ringing")
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+    handled_by = Column(String, nullable=True)
+    details_json = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_whatsapp_call_events_owner_account", "owner", "account_id"),
+    )
+
+
+class WhatsAppAuditLog(TimestampMixin, Base):
+    __tablename__ = "whatsapp_audit_logs"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    account_id = Column(String, ForeignKey("whatsapp_accounts.id", ondelete="SET NULL"), nullable=True, index=True)
+    conversation_id = Column(String, ForeignKey("whatsapp_conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+    message_id = Column(String, ForeignKey("whatsapp_messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    actor = Column(String, nullable=False, default="user")
+    capability = Column(String, nullable=False)
+    action = Column(String, nullable=False)
+    draft_payload = Column(Text, nullable=True)
+    final_payload = Column(Text, nullable=True)
+    transport = Column(String, nullable=True)
+    transport_result = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="recorded")
+    failure_details = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_whatsapp_audit_logs_owner_created", "owner", "created_at"),
+    )
+
+
+class WhatsAppTransportEvent(TimestampMixin, Base):
+    __tablename__ = "whatsapp_transport_events"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    account_id = Column(String, ForeignKey("whatsapp_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String, nullable=False)
+    provider_event_id = Column(String, nullable=True, index=True)
+    normalized = Column(Boolean, default=False, nullable=False)
+    retry_count = Column(Integer, default=0, nullable=False)
+    dead_letter = Column(Boolean, default=False, nullable=False)
+    error = Column(Text, nullable=True)
+    raw_payload = Column(EncryptedText, nullable=True)
+    raw_payload_expires_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_whatsapp_transport_events_owner_account", "owner", "account_id"),
+        Index("ix_whatsapp_transport_events_dead_letter", "dead_letter", "created_at"),
+    )
+
+
 class ModelEndpoint(TimestampMixin, Base):
     """Admin-configured model endpoints. Models are auto-discovered via /v1/models."""
     __tablename__ = "model_endpoints"
@@ -1446,6 +1658,109 @@ class Integration(TimestampMixin, Base):
     config = Column(JSON, nullable=True)     # type-specific config
     enabled = Column(Boolean, default=True)
 
+
+class BlueTopic(TimestampMixin, Base):
+    """A B.L.U.E. learning topic owned by a user."""
+    __tablename__ = "blue_topics"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    title = Column(String, nullable=False)
+    command = Column(String, nullable=False, default="learn")
+    summary = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="draft")
+    source_ref = Column(String, nullable=True)
+    session_id = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    nodes = relationship("BlueNode", back_populates="topic", cascade="all, delete-orphan")
+    methods = relationship("BlueMethod", back_populates="topic", cascade="all, delete-orphan")
+    verifications = relationship("BlueVerification", back_populates="topic", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_blue_topics_owner_updated", "owner", "updated_at"),
+        Index("ix_blue_topics_owner_status", "owner", "status"),
+    )
+
+
+class BlueNode(TimestampMixin, Base):
+    """A node in a B.L.U.E. skill tree or learning map."""
+    __tablename__ = "blue_nodes"
+
+    id = Column(String, primary_key=True, index=True)
+    topic_id = Column(String, ForeignKey("blue_topics.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_id = Column(String, ForeignKey("blue_nodes.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    title = Column(String, nullable=False)
+    node_type = Column(String, nullable=False, default="skill")
+    level = Column(Integer, nullable=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    description = Column(Text, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+
+    topic = relationship("BlueTopic", back_populates="nodes")
+
+    __table_args__ = (
+        Index("ix_blue_nodes_topic_parent", "topic_id", "parent_id"),
+    )
+
+
+class BlueMethod(TimestampMixin, Base):
+    """One possible method or path for learning a B.L.U.E. topic."""
+    __tablename__ = "blue_methods"
+
+    id = Column(String, primary_key=True, index=True)
+    topic_id = Column(String, ForeignKey("blue_topics.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = Column(String, nullable=True, index=True)
+    name = Column(String, nullable=False)
+    best_for = Column(Text, nullable=True)
+    tradeoffs_json = Column(JSON, nullable=True)
+    risk_level = Column(String, nullable=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+
+    topic = relationship("BlueTopic", back_populates="methods")
+
+    __table_args__ = (
+        Index("ix_blue_methods_topic_order", "topic_id", "sort_order"),
+    )
+
+
+class BlueVerification(TimestampMixin, Base):
+    """Verification notes and evidence for a B.L.U.E. topic."""
+    __tablename__ = "blue_verifications"
+
+    id = Column(String, primary_key=True, index=True)
+    topic_id = Column(String, ForeignKey("blue_topics.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = Column(String, nullable=True, index=True)
+    status = Column(String, nullable=False, default="unverified")
+    claim = Column(Text, nullable=False, default="")
+    checks_json = Column(JSON, nullable=True)
+    evidence_json = Column(JSON, nullable=True)
+    verifier = Column(String, nullable=True)
+
+    topic = relationship("BlueTopic", back_populates="verifications")
+
+    __table_args__ = (
+        Index("ix_blue_verifications_topic_status", "topic_id", "status"),
+    )
+
+
+class BlueUserProgress(TimestampMixin, Base):
+    """Per-user progress through a B.L.U.E. topic or node."""
+    __tablename__ = "blue_user_progress"
+
+    id = Column(String, primary_key=True, index=True)
+    owner = Column(String, nullable=True, index=True)
+    topic_id = Column(String, ForeignKey("blue_topics.id", ondelete="CASCADE"), nullable=False, index=True)
+    node_id = Column(String, ForeignKey("blue_nodes.id", ondelete="CASCADE"), nullable=True, index=True)
+    status = Column(String, nullable=False, default="not_started")
+    confidence = Column(Integer, nullable=False, default=0)
+    last_practiced_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_blue_progress_owner_topic", "owner", "topic_id"),
+        Index("ix_blue_progress_owner_status", "owner", "status"),
+    )
 
 
 

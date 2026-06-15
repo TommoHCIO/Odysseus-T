@@ -8,6 +8,30 @@ import uiModule from './ui.js';
 import { _diagnose, _showDiagnosis, _clearDiagnosis } from './cookbook-diagnosis.js';
 import { registerMenuDismiss } from './escMenuStack.js';
 
+const ORACLE_COOKBOOK_JOB_MESSAGES = {
+  started: 'A Cookbook job started.',
+  completed: 'A Cookbook job finished.',
+  failed: 'A Cookbook job failed.',
+  stopped: 'A Cookbook job stopped.',
+};
+
+function _requestOracleCookbookJobNarration(eventType, messageKey) {
+  const runtime = window.oracleVoiceRuntime;
+  const status = runtime?.status || {};
+  if (!status.active || status.state === 'interrupted' || status.state === 'cancelled') return;
+  const message = ORACLE_COOKBOOK_JOB_MESSAGES[messageKey];
+  if (!eventType || !message) return;
+  window.dispatchEvent(new CustomEvent('oraclevoice:narration-request', {
+    detail: {
+      source: 'cookbook_job',
+      eventType,
+      message,
+      speak: true,
+      requireActive: true,
+    },
+  }));
+}
+
 // Human-friendly badge label for a task's internal status. Avoids surfacing
 // the word "error" in the sidebar — a server the user stopped or one that
 // quit cleanly reads as "stopped", not "error".
@@ -538,6 +562,7 @@ export function _addTask(sessionId, name, type, payload) {
   const task = _stripTaskSecrets({ id: sessionId, sessionId, name, type, status: 'running', output: '', ts: Date.now(), payload: payload || null, remoteHost, sshPort, platform });
   tasks.push(task);
   _saveTasks(tasks);
+  _requestOracleCookbookJobNarration('cookbook.job.started', 'started');
   // New action → collapse all other cards, leave only this one open.
   _soloExpandTaskId = sessionId;
   _renderRunningTab();
@@ -557,8 +582,18 @@ function _updateTask(sessionId, updates) {
   const tasks = _loadTasks();
   const task = tasks.find(t => t.sessionId === sessionId);
   if (task) {
+    const previousStatus = task.status;
     Object.assign(task, updates);
     _saveTasks(tasks);
+    if (updates.status && updates.status !== previousStatus) {
+      if (updates.status === 'done' || updates.status === 'ready') {
+        _requestOracleCookbookJobNarration('cookbook.job.completed', 'completed');
+      } else if (updates.status === 'error' || updates.status === 'crashed' || updates.status === 'failed') {
+        _requestOracleCookbookJobNarration('cookbook.job.failed', 'failed');
+      } else if (updates.status === 'stopped') {
+        _requestOracleCookbookJobNarration('cookbook.job.stopped', 'stopped');
+      }
+    }
   }
   if ('status' in updates || '_unreachable' in updates) {
     _refreshServerDots();
@@ -2004,6 +2039,7 @@ export function _renderRunningTab() {
       } catch {}
       // ...then smoothly fade/slide the card out and auto-remove it — no manual
       // ⋮ → Remove needed.
+      _requestOracleCookbookJobNarration('cookbook.job.stopped', 'stopped');
       _animateOutThenRemove(el, task.sessionId);
     });
 
@@ -2030,6 +2066,7 @@ export function _renderRunningTab() {
             }).catch(() => {});
         }
       }
+      _requestOracleCookbookJobNarration('cookbook.job.stopped', 'stopped');
       _animateOutThenRemove(el, task.sessionId);
     });
 
@@ -2398,6 +2435,7 @@ async function _reconnectTask(el, task) {
             if (info.status === 'ready' && !task._serveReady) {
               task._serveReady = true;
               _updateTask(task.sessionId, { _serveReady: true });
+              _requestOracleCookbookJobNarration('cookbook.job.completed', 'completed');
             }
             if (info.phase) {
               badge.textContent = info.phase;
@@ -2808,6 +2846,11 @@ async function _pollBackgroundStatus() {
         if (nextStatus && task.status !== nextStatus) {
           updates.status = nextStatus;
           if (nextStatus === 'done' && task.payload?._dep) completedDeps.push(task);
+          if (nextStatus === 'done') {
+            _requestOracleCookbookJobNarration('cookbook.job.completed', 'completed');
+          } else if (nextStatus === 'error') {
+            _requestOracleCookbookJobNarration('cookbook.job.failed', 'failed');
+          }
         }
         if (live.progress && live.progress !== task.progress) updates.progress = live.progress;
         if (live.output_tail && live.output_tail !== task.output) updates.output = live.output_tail;
@@ -2852,8 +2895,10 @@ async function _pollBackgroundStatus() {
         } catch {}
       }
       const _isDiffusion = localTask?.payload?._cmd?.includes('diffusion_server');
+      const wasServeReady = !!localTask?._serveReady;
 
       _updateTask(t.session_id, { _serveReady: true, _endpointAdded: true });
+      if (!wasServeReady) _requestOracleCookbookJobNarration('cookbook.job.completed', 'completed');
       if (localTask) _autoSaveWorkingConfig(localTask);   // remember working settings (modal may be closed)
 
       // Auto-detect function-calling support from the serve cmd.

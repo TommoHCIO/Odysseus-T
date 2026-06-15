@@ -9,6 +9,41 @@ import * as uiModule from './ui.js';
 let pyodideInstance = null;
 let pyodideLoading = false;
 const pyodideQueue = [];
+const ORACLE_CODE_RUN_MESSAGES = {
+  started: 'A code run started.',
+  completed: 'The code run finished.',
+  failed: 'The code run failed.',
+};
+
+function _requestOracleCodeRunNarration(eventType, messageKey, options = {}) {
+  const runtime = window.oracleVoiceRuntime;
+  const status = runtime && runtime.status ? runtime.status : null;
+  if (!runtime || !status || !status.active || status.state === 'cancelled' || status.state === 'interrupted') return false;
+  const message = ORACLE_CODE_RUN_MESSAGES[messageKey] || ORACLE_CODE_RUN_MESSAGES.completed;
+  window.dispatchEvent(new CustomEvent('oraclevoice:narration-request', {
+    detail: {
+      source: 'code_run',
+      eventType: eventType,
+      message: message,
+      codeRunPhase: messageKey,
+      speak: options.speak === true,
+      requireActive: true,
+    },
+  }));
+  return true;
+}
+
+function _requestOracleCodeRunStarted() {
+  return _requestOracleCodeRunNarration('code.run.started', 'started', { speak: true });
+}
+
+function _requestOracleCodeRunCompleted() {
+  return _requestOracleCodeRunNarration('code.run.completed', 'completed', { speak: true });
+}
+
+function _requestOracleCodeRunFailed() {
+  return _requestOracleCodeRunNarration('code.run.failed', 'failed', { speak: true });
+}
 
 /**
  * Get or create an output panel below the <pre> element
@@ -192,6 +227,7 @@ export async function runPython(code, panel) {
     py = await loadPyodide();
   } catch (e) {
     showOutput(panel, 'Failed to load Python runtime: ' + e.message, true);
+    _requestOracleCodeRunFailed();
     addCloseBtn(panel);
     return;
   }
@@ -227,13 +263,17 @@ finally:
     panel.innerHTML = '';
     if (stderr) {
       showOutput(panel, stderr, true);
+      _requestOracleCodeRunFailed();
     } else if (stdout) {
       showOutput(panel, stdout, false);
+      _requestOracleCodeRunCompleted();
     } else {
       showOutput(panel, '(no output)', false);
+      _requestOracleCodeRunCompleted();
     }
   } catch (e) {
     showOutput(panel, e.message, true);
+    _requestOracleCodeRunFailed();
   }
   addCloseBtn(panel);
 }
@@ -258,6 +298,7 @@ export function runJavaScript(code, panel) {
     if (!settled) {
       settled = true;
       showOutput(panel, 'Execution timed out (10 s)', true);
+      _requestOracleCodeRunFailed();
       addCloseBtn(panel);
       cleanup();
     }
@@ -274,10 +315,13 @@ export function runJavaScript(code, panel) {
     panel.innerHTML = '';
     if (data.error) {
       showOutput(panel, data.error, true);
+      _requestOracleCodeRunFailed();
     } else if (data.logs && data.logs.length > 0) {
       showOutput(panel, data.logs.join('\n'), false);
+      _requestOracleCodeRunCompleted();
     } else {
       showOutput(panel, '(no output)', false);
+      _requestOracleCodeRunCompleted();
     }
     addCloseBtn(panel);
     cleanup();
@@ -338,6 +382,9 @@ export async function runServer(code, panel, lang) {
     } else {
       showOutput(panel, '(no output)' + (data.exit_code ? ' — exit code ' + data.exit_code : ''), !data.exit_code ? false : true);
     }
+    const ok = !((data.stderr && data.stderr.trim()) || (data.exit_code && data.exit_code !== 0));
+    if (ok) _requestOracleCodeRunCompleted();
+    else _requestOracleCodeRunFailed();
     if (data.exit_code && data.exit_code !== 0) {
       var exitEl = document.createElement('div');
       exitEl.style.cssText = 'font-size:0.75rem;opacity:0.5;padding:2px 8px;';
@@ -346,6 +393,7 @@ export async function runServer(code, panel, lang) {
     }
   } catch (e) {
     showOutput(panel, 'Execution failed: ' + e.message, true);
+    _requestOracleCodeRunFailed();
   }
   addCloseBtn(panel);
 }
@@ -359,6 +407,7 @@ export function runHTML(code, panel) {
   const win = window.open('', '_blank', 'width=800,height=600,menubar=no,toolbar=no,location=no,status=no');
   if (!win) {
     showOutput(panel, 'Popup blocked — please allow popups for this site.', true);
+    _requestOracleCodeRunFailed();
     addCloseBtn(panel);
     return;
   }
@@ -367,6 +416,7 @@ export function runHTML(code, panel) {
   win.document.close();
 
   showOutput(panel, 'Opened in new window', false);
+  _requestOracleCodeRunCompleted();
   addCloseBtn(panel);
 }
 
@@ -384,12 +434,16 @@ export function run(btn) {
   const panel = getOrCreatePanel(pre);
 
   if (lang === 'bash' || lang === 'sh' || lang === 'shell' || lang === 'zsh') {
+    _requestOracleCodeRunStarted();
     runServer(code, panel, 'bash');
   } else if (lang === 'python' || lang === 'py') {
+    _requestOracleCodeRunStarted();
     runServer(code, panel, 'python');
   } else if (lang === 'javascript' || lang === 'js') {
+    _requestOracleCodeRunStarted();
     runJavaScript(code, panel);
   } else if (lang === 'html') {
+    _requestOracleCodeRunStarted();
     runHTML(code, panel);
   }
 }

@@ -1,6 +1,9 @@
 services:
   odysseus:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_LOCAL_STT: ${ODYSSEUS_INSTALL_LOCAL_STT:-false}
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-7000}:7000"
     volumes:
@@ -24,6 +27,8 @@ services:
       - LLM_HOST=${LLM_HOST:-localhost}
       - LLM_HOSTS=${LLM_HOSTS:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - CARTESIA_API_KEY=${CARTESIA_API_KEY:-}
+      - CARTESIA_API_KEY_FILE=${CARTESIA_API_KEY_FILE:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       - RESEARCH_LLM_ENDPOINT=${RESEARCH_LLM_ENDPOINT:-}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -52,6 +57,9 @@ services:
       - ODYSSEUS_HOST_BRIDGE_TRANSPORT=${ODYSSEUS_HOST_BRIDGE_TRANSPORT:-sse}
       - ODYSSEUS_HOST_BRIDGE_SERVER_ID=${ODYSSEUS_HOST_BRIDGE_SERVER_ID:-host_access}
       - ODYSSEUS_HOST_BRIDGE_NAME=${ODYSSEUS_HOST_BRIDGE_NAME:-Host Access Bridge}
+      - ODYSSEUS_WHATSAPP_BRIDGE_ENABLED=${ODYSSEUS_WHATSAPP_BRIDGE_ENABLED:-true}
+      - ODYSSEUS_WHATSAPP_BRIDGE_URL=${ODYSSEUS_WHATSAPP_BRIDGE_URL:-http://whatsapp-bridge:8788}
+      - ODYSSEUS_WHATSAPP_BRIDGE_TOKEN=${ODYSSEUS_WHATSAPP_BRIDGE_TOKEN:-}
       - DATA_BRAVE_API_KEY=${DATA_BRAVE_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - GOOGLE_PSE_CX=${GOOGLE_PSE_CX:-}
@@ -67,11 +75,42 @@ services:
       # Find yours with:  id -u  /  id -g
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
+      - ODYSSEUS_CHOWN_PATHS=/app /app/logs
     depends_on:
+      speaches:
+        condition: service_started
+      whatsapp-bridge:
+        condition: service_started
       searxng:
         condition: service_healthy
       chromadb:
         condition: service_started
+    restart: unless-stopped
+
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    ports:
+      - "${SPEACHES_BIND:-127.0.0.1}:${SPEACHES_PORT:-8000}:8000"
+    volumes:
+      - speaches-hf-cache:/home/ubuntu/.cache/huggingface/hub
+    restart: unless-stopped
+
+  whatsapp-bridge:
+    build: .
+    command: ["node", "services/whatsapp_bridge/bridge.js"]
+    ports:
+      - "${WHATSAPP_BRIDGE_BIND:-127.0.0.1}:${WHATSAPP_BRIDGE_PORT:-8788}:8788"
+    volumes:
+      - ./data:/app/data:z
+      - ./logs:/app/logs:z
+    environment:
+      - ODYSSEUS_WHATSAPP_BRIDGE_PORT=8788
+      - ODYSSEUS_WHATSAPP_BRIDGE_HOST=0.0.0.0
+      - ODYSSEUS_WHATSAPP_BRIDGE_TOKEN=${ODYSSEUS_WHATSAPP_BRIDGE_TOKEN:-}
+      - ODYSSEUS_WHATSAPP_BACKEND_URL=${ODYSSEUS_WHATSAPP_BACKEND_URL:-http://odysseus:7000}
+      - ODYSSEUS_WHATSAPP_DATA_ROOT=/app/data/whatsapp
+      - ODYSSEUS_WHATSAPP_BRIDGE_LOG_LEVEL=${ODYSSEUS_WHATSAPP_BRIDGE_LOG_LEVEL:-warn}
+      - ODYSSEUS_CHOWN_PATHS=/app/data/whatsapp /app/logs
     restart: unless-stopped
 
   chromadb:
@@ -144,3 +183,5 @@ volumes:
   searxng-data:
   chromadb-data:
   ntfy-cache:
+  speaches-hf-cache:
+    name: odysseus-speaches-hf

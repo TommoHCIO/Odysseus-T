@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
-    "3d-force-graph": "1.80.0"
+    "@whiskeysockets/baileys": "^6.7.18",
+    "3d-force-graph": "1.80.0",
+    "pino": "^9.7.0"
   }
 }

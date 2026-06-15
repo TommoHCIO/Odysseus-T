@@ -37,12 +37,18 @@ fi
 # to mkdir them. Chown the whole /app tree — fast (<1s on this size)
 # and idempotent via the `-not -uid` filter so we only touch files
 # that need fixing.
-for dir in /app /app/data /app/logs; do
+CHOWN_PATHS="${ODYSSEUS_CHOWN_PATHS:-/app /app/data /app/logs}"
+for dir in $CHOWN_PATHS; do
     if [ -d "$dir" ]; then
         # `find ... -not -uid` keeps this O(touched-files), not
         # O(everything), so terabyte-sized maildirs don't slow startup.
-        find "$dir" -not -uid "$PUID" -print0 2>/dev/null \
-            | xargs -0 -r chown "$PUID:$PGID" 2>/dev/null || true
+        if [ "$dir" = "/app" ]; then
+            find "$dir" \( -path /app/node_modules -o -path /app/data -o -path /app/logs \) -prune -o -not -uid "$PUID" -print0 2>/dev/null \
+                | xargs -0 -r chown "$PUID:$PGID" 2>/dev/null || true
+        else
+            find "$dir" -not -uid "$PUID" -print0 2>/dev/null \
+                | xargs -0 -r chown "$PUID:$PGID" 2>/dev/null || true
+        fi
     fi
 done
 

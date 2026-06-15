@@ -178,6 +178,34 @@ def test_fetch_registry_catalog_defaults_to_bounded_page_count():
     assert client.calls == 2
 
 
+def test_fetch_registry_catalog_page_limit_can_be_configured(monkeypatch):
+    class AlwaysMoreClient:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url, params=None, timeout=None):
+            self.calls += 1
+            return FakeRegistryResponse({
+                "servers": [{
+                    "server": {
+                        "name": f"server-{self.calls}",
+                        "description": "Server",
+                        "version": "1",
+                        "packages": [{"registryType": "npm", "identifier": f"server-{self.calls}-mcp"}],
+                    },
+                    "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active", "isLatest": True}},
+                }],
+                "metadata": {"nextCursor": f"cursor-{self.calls}", "count": 1},
+            })
+
+    monkeypatch.setenv("ODYSSEUS_MCP_REGISTRY_PAGE_LIMIT", "4")
+    client = AlwaysMoreClient()
+
+    fetch_registry_catalog("https://registry.example/v0.1/servers", source_id="official-mcp-registry", source_priority=60, client=client)
+
+    assert client.calls == 4
+
+
 class FailingSecondPageClient:
     def __init__(self):
         self.calls = 0

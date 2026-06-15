@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed Odysseus with a curated starter library of 100 skills.
+"""Seed Odysseus with the ship-feature skill stack.
 
 Uses the existing disk-backed SKILL.md system under data/skills.
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from collections import Counter
 from pathlib import Path
@@ -262,7 +263,130 @@ def _build_default_skills() -> list[dict]:
     ]
 
 
-DEFAULT_SKILLS = _build_default_skills()
+DEFAULT_SKILLS = [
+    {
+        "name": "ship-feature",
+        "description": "Orchestrate feature work from context gathering through QA and handoff.",
+        "category": "feature-shipping",
+        "tags": ["ship-feature", "feature", "srs", "tdd", "qa"],
+        "platforms": [],
+        "requires_toolsets": [],
+        "fallback_for_toolsets": [],
+        "related": ["grill-with-docs", "srs", "tdd"],
+        "when_to_use": (
+            "Use ship-feature when the user wants Codex to take a feature, bug fix, "
+            "refactor, product idea, or implementation goal through alignment, "
+            "requirements, slicing, implementation, verification, QA, and handoff."
+        ),
+        "procedure": [
+            "Orient by reading CONTEXT-MAP.md, relevant CONTEXT.md files, handoff notes, current docs, and nearby code/tests.",
+            "Align with grill-with-docs: resolve domain language, assumptions, and architectural constraints before production edits.",
+            "Define a compact SRS/PRD with scope, acceptance criteria, affected modules, and verification plan.",
+            "Slice the destination into independently verifiable vertical slices and mark each slice AFK or HITL.",
+            "Execute each slice with TDD: red, green, refactor, then broaden verification.",
+            "Verify with focused checks first, then relevant suites, type checks, linters, runtime smoke tests, and UI screenshots when applicable.",
+            "QA the result for maintainability, security, performance, UX consistency, missing tests, and follow-up work.",
+            "Close out with artifacts, changed code, commands/results, risks, follow-ups, and handoff updates when work spans sessions.",
+        ],
+        "pitfalls": [
+            "Do not skip required subskills just because the task is small; use a compact pass instead.",
+            "Do not begin production edits while product intent, domain language, or architectural constraints are materially ambiguous.",
+            "Do not claim UI work is done without browser evidence when the handoff requires screenshots.",
+        ],
+        "verification": [
+            "The shipped slice has at least one focused executable check or an explicit reason why automated testing was impractical.",
+            "The final report names loaded subskills, verification commands/results, compacted phases, and remaining risks.",
+        ],
+    },
+    {
+        "name": "grill-with-docs",
+        "description": "Challenge a plan against project docs and domain language before implementation.",
+        "category": "feature-shipping-subskills",
+        "tags": ["alignment", "context", "docs", "domain"],
+        "platforms": [],
+        "requires_toolsets": [],
+        "fallback_for_toolsets": [],
+        "related": ["ship-feature"],
+        "when_to_use": (
+            "Use grill-with-docs during alignment when a plan, feature, or design must be checked "
+            "against CONTEXT.md language, ADRs, and the existing codebase."
+        ),
+        "procedure": [
+            "Read CONTEXT-MAP.md if present, then the relevant CONTEXT.md files and nearby ADRs or handoff docs.",
+            "Check fuzzy or conflicting terms against the glossary and propose precise canonical language.",
+            "Answer questions from code exploration when possible instead of interrupting the user.",
+            "Stress-test important decisions with concrete scenarios and surface contradictions between docs, code, and user intent.",
+            "Update context docs only when terminology or domain decisions actually crystallize.",
+        ],
+        "pitfalls": [
+            "Do not turn CONTEXT.md into an implementation spec or scratchpad.",
+            "Do not create ADRs unless the decision is hard to reverse, surprising without context, and the result of a real trade-off.",
+        ],
+        "verification": [
+            "The resolved assumptions and domain terms match the relevant glossary.",
+            "Any doc update is limited to stable terminology or a justified ADR-level decision.",
+        ],
+    },
+    {
+        "name": "srs",
+        "description": "Turn product intent into scoped, testable requirements and acceptance criteria.",
+        "category": "feature-shipping-subskills",
+        "tags": ["requirements", "prd", "acceptance-criteria", "scope"],
+        "platforms": [],
+        "requires_toolsets": [],
+        "fallback_for_toolsets": [],
+        "related": ["ship-feature"],
+        "when_to_use": (
+            "Use srs when a request needs a requirements artifact, compact PRD, acceptance criteria, "
+            "scope clarification, or a traceable destination before implementation."
+        ),
+        "procedure": [
+            "Gather project docs, existing specs, relevant code, tickets, and user notes.",
+            "Separate in-scope, out-of-scope, future work, dependencies, and constraints.",
+            "Write singular, necessary, feasible, verifiable requirements with stable IDs when the artifact is formal.",
+            "Pair requirements with acceptance criteria that can be tested, inspected, demonstrated, or analyzed.",
+            "Validate the artifact for conflicts, vague words, hidden design decisions, missing actors, and untestable claims.",
+        ],
+        "pitfalls": [
+            "Do not hide design decisions inside vague requirements.",
+            "Do not use TBD unless the owner and decision path are visible.",
+        ],
+        "verification": [
+            "Each stated goal maps to at least one requirement or acceptance criterion.",
+            "The acceptance criteria identify the checks needed for implementation.",
+        ],
+    },
+    {
+        "name": "tdd",
+        "description": "Drive implementation through focused red-green-refactor checks.",
+        "category": "feature-shipping-subskills",
+        "tags": ["testing", "implementation", "regression", "verification"],
+        "platforms": [],
+        "requires_toolsets": [],
+        "fallback_for_toolsets": [],
+        "related": ["ship-feature"],
+        "when_to_use": (
+            "Use tdd when implementing a behavior, fixing a bug, or changing code where an executable "
+            "test or focused verification target can protect the behavior."
+        ),
+        "procedure": [
+            "Identify the next behavior by reading surrounding code and existing tests.",
+            "Add or select one focused failing test or executable check and confirm it fails for the expected reason.",
+            "Implement the smallest useful change that makes the check pass.",
+            "Refactor names, duplication, and structure only while tests remain green.",
+            "Broaden verification to nearby suites, type checks, linters, app smoke checks, or manual checks based on risk.",
+        ],
+        "pitfalls": [
+            "Do not batch speculative tests before proving one behavior.",
+            "Do not rewrite tests to hide a real behavior failure.",
+            "Do not preserve unrelated changes by accident when working in a dirty tree; inspect and scope edits carefully.",
+        ],
+        "verification": [
+            "The focused test fails before the production change or an existing failing check is documented.",
+            "The focused check passes after implementation and relevant broader checks are reported.",
+        ],
+    },
+]
 
 
 def category_counts(skills: Iterable[dict] = DEFAULT_SKILLS) -> Counter:
@@ -294,6 +418,7 @@ def _write_curated_skill(manager: SkillsManager, entry: dict, *, owner: str) -> 
         procedure=list(entry["procedure"]),
         pitfalls=list(entry["pitfalls"]),
         verification=list(entry["verification"]),
+        related=list(entry.get("related") or []),
     )
     manager._write_skill(skill)
 
@@ -304,6 +429,7 @@ def seed_skills(
     data_dir: Path | str | None = None,
     dry_run: bool = False,
     update_existing: bool = False,
+    replace_catalog: bool = False,
 ) -> dict:
     manager = SkillsManager(str(data_dir or (REPO_ROOT / "data")))
     existing = _existing_by_owner_and_name(manager)
@@ -327,29 +453,56 @@ def seed_skills(
             continue
         _write_curated_skill(manager, entry, owner=owner)
 
+    removed: list[str] = []
+    removed_legacy: list[str] = []
+    if replace_catalog:
+        default_names = {entry["name"] for entry in DEFAULT_SKILLS}
+        for skill in manager.load(owner=owner):
+            name = skill.get("name")
+            if not name or name in default_names:
+                continue
+            if dry_run or manager.delete_skill(name, owner=owner):
+                removed.append(name)
+
+        if manager.use_obsidian_storage:
+            for path in list(manager._iter_legacy_skill_files()):
+                skill = manager._read_skill(path)
+                if not skill or skill.owner != owner:
+                    continue
+                removed_legacy.append(skill.name)
+                if dry_run:
+                    continue
+                shutil.rmtree(Path(path).parent, ignore_errors=True)
+
     return {
         "owner": owner,
         "total_catalog": len(DEFAULT_SKILLS),
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "removed": removed,
+        "removed_legacy": removed_legacy,
         "counts": {
             "created": len(created),
             "updated": len(updated),
             "skipped": len(skipped),
+            "removed": len(removed),
+            "removed_legacy": len(removed_legacy),
         },
         "category_counts": dict(category_counts()),
         "dry_run": dry_run,
         "update_existing": update_existing,
+        "replace_catalog": replace_catalog,
     }
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Seed Odysseus with 100 published skills.")
+    parser = argparse.ArgumentParser(description="Seed Odysseus with the ship-feature skill stack.")
     parser.add_argument("--owner", default=DEFAULT_OWNER)
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--update-existing", action="store_true")
+    parser.add_argument("--replace-catalog", action="store_true", help="Delete owner-scoped skills not in the ship-feature stack.")
     parser.add_argument("--pretty", action="store_true")
     return parser
 
@@ -361,6 +514,7 @@ def main(argv: list[str] | None = None) -> int:
         data_dir=args.data_dir,
         dry_run=args.dry_run,
         update_existing=args.update_existing,
+        replace_catalog=args.replace_catalog,
     )
     print(json.dumps(result, indent=2 if args.pretty else None, sort_keys=True))
     return 0

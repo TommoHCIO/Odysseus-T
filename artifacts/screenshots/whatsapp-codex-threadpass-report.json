@@ -1,0 +1,254 @@
+{
+  "screenshots": [
+    "artifacts\\screenshots\\whatsapp-codex-threadpass-library-open.png",
+    "artifacts\\screenshots\\whatsapp-codex-threadpass-thread-selected.png",
+    "artifacts\\screenshots\\whatsapp-codex-threadpass-summary-ai-draft.png",
+    "artifacts\\screenshots\\whatsapp-codex-threadpass-after-sync-click.png"
+  ],
+  "states": {
+    "open": {
+      "hidden": false,
+      "text": "WhatsApp\nRefresh\n_\n\u00d7\nPersonal WhatsApp (default)\nAll\nUnread\nArchived\nMuted\nNeeds reply\nFailed sends\nOpt-out blocked\nCalls\nNew Chat\nPersonal WhatsApp - web_client - connected / connected - idle - not_started0 chats - 0 messages - 0 media\nBridge online\nSync Chats\nSettings\nTO\nTommo\nVedo costa tanto\ud83d\ude02\n1 UNREAD\nJun 13, 11:24 AM\nDI\nDiana\n232533857980473@lid\n1 UNREAD\nJun 13, 11:12 AM\n30\n306971686532@s.whatsapp.net\n306971686532@s.whatsapp.net\nJun 13, 11:07 AM\nSelect a WhatsApp conversation.\nChoose a chat to read messages.\nSelect a conversation first.\nAI Draft\nSave Draft\nSend"
+    },
+    "thread_selected": {
+      "header": "TO\nTommo\n254524174409953@lid\nSummarize\nMark Read\nArchive\nVoice\nVideo",
+      "body": "Pieralli Alessandra\nJun 13, 11:17 AM\nreceived\nReact\nReply\nReminder\nDelete\nTommo\nJun 13, 11:17 AM\nsent\nBellina una piscina\nReact\nEdit\nReply\nReminder\nDelete\nTommo\nJun 13, 11:24 AM\nsent\nDici entra?\nReact\nEdit\nReply\nReminder\nDelete\nTommo\nJun 13, 11:24 AM\nsent\nVedo costa tanto\ud83d\ude02\nReact\nEdit\nReply\nReminder\nDelete",
+      "blocker": "",
+      "sendDisabled": false
+    },
+    "summary": "Tommo: 4 messages (1 inbound, 3 outbound). Latest: Vedo costa tanto\ud83d\ude02",
+    "ai_draft": "Thanks for the message. I saw: Vedo costa tanto\ud83d\ude02",
+    "sync_before": {
+      "chats_discovered": 0,
+      "chats_normalized": 0,
+      "elapsed_ms": 0,
+      "failures": 0,
+      "job_id": "2d40655b43354cff97e09b1525e96ad0",
+      "last_error": null,
+      "last_successful_sync_at": "2026-06-13T11:46:53.501085",
+      "media_queued": 0,
+      "messages_processed": 0,
+      "partial_history_caveat": "Only linked-device/cloud history made available by WhatsApp can be imported.",
+      "phase": "not_started",
+      "started_at": "2026-06-13T12:12:11.909600",
+      "status": "idle",
+      "updated_at": "2026-06-13T12:12:11.909600"
+    },
+    "sync_after_ui": "Personal WhatsApp - web_client - connected / connected - idle - not_started0 chats - 0 messages - 0 media\nBridge online\nSync Chats\nSettings",
+    "sync_after_api": {
+      "chats_discovered": 0,
+      "chats_normalized": 0,
+      "elapsed_ms": 0,
+      "failures": 0,
+      "job_id": "3ccb9708bd394be3bb7f9e6b90cc8937",
+      "last_error": null,
+      "last_successful_sync_at": "2026-06-13T11:46:53.501085",
+      "media_queued": 0,
+      "messages_processed": 0,
+      "partial_history_caveat": "Only linked-device/cloud history made available by WhatsApp can be imported.",
+      "phase": "not_started",
+      "started_at": "2026-06-13T12:13:09.450446",
+      "status": "idle",
+      "updated_at": "2026-06-13T12:13:09.450446"
+    },
+    "layout": {
+      "vw": 1600,
+      "docScrollWidth": 1600,
+      "overflowX": false,
+      "modalHidden": false
+    }
+  },
+  "events": [
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.684,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#set-searchApiKey.settings-select",
+              "objectId": "3915114607477538510.20.1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.803,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#settings-pw-current",
+              "objectId": "3915114607477538510.20.2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.836,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#settings-pw-new",
+              "objectId": "3915114607477538510.20.3"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.859,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#settings-pw-confirm",
+              "objectId": "3915114607477538510.20.4"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.888,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#adm-newPassword",
+              "objectId": "3915114607477538510.20.5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.914,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#adm-epLocalApiKey",
+              "objectId": "3915114607477538510.20.6"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.937,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#adm-epApiKey",
+              "objectId": "3915114607477538510.20.7"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Console.messageAdded",
+      "params": {
+        "message": {
+          "source": "console-api",
+          "level": "debug",
+          "text": "TTS: not available",
+          "url": "http://127.0.0.1:7000/static/js/tts-ai.js",
+          "line": 60,
+          "column": 25
+        }
+      }
+    },
+    {
+      "method": "Console.messageAdded",
+      "params": {
+        "message": {
+          "source": "console-api",
+          "level": "log",
+          "text": "Highlighting all code blocks on page load",
+          "url": "http://127.0.0.1:7000/static/app.js",
+          "line": 4163,
+          "column": 13
+        }
+      }
+    },
+    {
+      "method": "Network.responseReceived",
+      "url": "http://127.0.0.1:7000/api/whatsapp/accounts/bdc8985ebb944062b70a96f7b58b81c5/sync",
+      "status": 502
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "network",
+          "level": "error",
+          "text": "Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
+          "timestamp": 1781352789435.264,
+          "url": "http://127.0.0.1:7000/api/whatsapp/accounts/bdc8985ebb944062b70a96f7b58b81c5/sync",
+          "networkRequestId": "16992.1818"
+        }
+      }
+    }
+  ]
+}

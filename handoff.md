@@ -1,270 +1,184 @@
-# Odysseus-T Session Handoff
+# Odysseus-T Handoff
 
-## Must-Do Workflow
+Last updated: 2026-06-15
 
-- Fix issues while also improving and polishing features aesthetically, technically, and ergonomically whenever a clear opportunity appears.
-- Use a fix -> run -> test -> validate -> fix -> retest loop. Do not stop at "it works" if screenshots, logs, accessibility, layout, responsiveness, or workflow behavior show problems.
-- Retest step by step through the real visible Chrome browser, directly interacting with the app.
-- Take screenshots during every important stage and use them as design-review evidence.
-- Test three different task difficulties after workflow changes:
-  - Easy task.
-  - Medium task.
-  - Difficult task.
-- Always check Docker logs after fixes, rebuilds, browser actions, workflow runs, and final validation.
-- User sends a request to the Council.
-- The Council must behave like a real team, not a chatbot:
-  - agents talk to each other;
-  - agents debate, discuss, analyze, challenge assumptions, and compare options;
-  - agents use tools, research, browser checks, code analysis, tests, and documentation where useful;
-  - agents collaborate before producing ideas, sketches, and final products.
-- The Council should not only answer the user request directly. It must move the request through the full product workflow.
-- Required workflow:
-  - User request enters Council.
-  - Council discussion happens in group chat.
-  - Council performs research and analysis.
-  - Council creates implementation ideas.
-  - Council pushes ideas to Idea Loop for user review.
-  - If the idea is approved, send it back to Council.
-  - Council creates a Sketch and pushes it to the Sketches group in Idea Loop.
-  - A Sketch must be an executable prototype, not just a mockup.
-  - If the Sketch is approved, send it back to Council.
-  - Council creates a final product and pushes it to Idea Loop Review.
-  - Review stage must include a functional build, QA, documentation, deployment notes, and knowledge storage.
-- The workflow must support all full-stack project types, not only webpages:
-  - web apps;
-  - mobile apps;
-  - desktop apps;
-  - APIs;
-  - SaaS products;
-  - AI agents;
-  - automation;
-  - games;
-  - CLI tools;
-  - browser/extensions;
-  - services and multi-component systems.
-- For the fuel/gas price example:
-  - the Sketch prototype must show a credible fuel prices webpage;
-  - the Review build must be a fully functional local gas/fuel prices app;
-  - it must include working controls, realistic sample data, local execution behavior, tests/QA evidence, and documentation.
-- Agents should run and validate final outputs locally with tools where possible.
-- Obsidian/workspace is the primary source of truth, the "bible of knowledge."
-- Brain/Memory is secondary and should be used for shorter-term memory gathering.
-- Update Obsidian/workspace first, then sync Brain/Memory.
-- Obsidian must be graph-based knowledge storage and retrieval with a graph-based display.
-- Continue researching Obsidian deeply and use findings to improve the platform:
-  - perform 10 searches when asked to refresh Obsidian understanding;
-  - study graph views, local/global graphs, backlinks, outgoing links, Canvas, Properties, Bases, vault structure, PKM, plugins, and enterprise knowledge UX.
-- Completion requires:
-  - Council discussion;
-  - research;
-  - ideas;
-  - user approval;
-  - executable prototype sketch;
-  - user approval;
-  - final review build;
-  - browser testing;
-  - screenshots;
-  - clean Docker logs;
-  - QA approval;
-  - documentation;
-  - deployment notes;
-  - Obsidian/workspace update;
-  - Brain/Memory sync;
-  - review approval.
+This is the short operator handoff for the whole Odysseus-T workspace. Keep it current and concise. Long feature evidence belongs in focused docs such as `oracle.md`, not here.
 
-## Project Overview
+## Read First
 
-Odysseus-T is a Docker-run personal AI workspace with chat sessions, model/group chat, Council mode, tools, memory, research, documents, email, and workspace surfaces. The main app is served from the `odysseus` Docker service at `http://127.0.0.1:7000`, with ChromaDB and SearxNG companion services.
+- App URL: `http://127.0.0.1:7000`
+- Recent Chrome CDP endpoint: `http://127.0.0.1:9226`
+- Runtime service: Docker Compose service `odysseus`
+- Auth is enabled locally.
+- App shell cache: `app.js?v=20260614newchat2`
+- Service worker cache: `odysseus-v399`
+- Main map: `CONTEXT-MAP.md`
+- O.R.A.C.L.E. detail: `oracle.md`
 
-This session focused on making the Council workflow behave like a real product-development team instead of a one-shot chatbot. The intended lifecycle is:
+## Project Shape
 
-Request -> Council Discussion -> Research -> Ideas -> User Approval -> Sketch -> User Approval -> Review Build -> QA -> Documentation -> Deployment -> Knowledge Storage.
+Odysseus-T is a local-first AI workspace with these major surfaces:
 
-The workspace now treats Obsidian/workspace artifacts as the primary source of truth, with Brain/Memory as secondary short-term memory.
+- Chat: sessions, messages, model routing, voice-originated messages, file/context attachment.
+- Agent: tool-using autonomous task runs with shell/files/web/MCP/skills/memory.
+- Council: multi-agent phased workflow for Idea, Sketch, Review/final product.
+- Knowledge: Obsidian is canonical; legacy Brain/Memory exists for compatibility.
+- Cookbook/Models: model discovery, hardware fit, downloads, serving, provider setup.
+- Deep Research: multi-step source gathering and report synthesis.
+- Compare: blind side-by-side model comparison and synthesis.
+- Documents/Outputs: editable documents, generated artifacts, previews, QA evidence.
+- Communications: Email and WhatsApp surfaces, drafts, sends, contacts, notifications.
+- Media: gallery, generated images, editing flows.
+- Voice: O.R.A.C.L.E. realtime listening/speaking layer around existing work.
 
-## Major Work Completed
+Use `CONTEXT-MAP.md` before renaming UI concepts or moving cross-domain behavior.
 
-### Council Workflow
+## Operating Rules
 
-- Hardened `static/js/group.js` Council protocol so Council tasks explicitly require:
-  - role-based discussion across product, architecture, UX, frontend, backend, DevOps, QA, research, and documentation perspectives;
-  - agents to debate, challenge assumptions, compare tradeoffs, identify risks, and converge;
-  - research/tool plans, QA plans, Docker/browser evidence, documentation, deployment notes, and knowledge storage;
-  - support for all project types, not only webpages.
-- Forced Council workflow messages through deliberative round-robin behavior so agents can see and respond to prior participant messages.
-- Added verified runnable fallback artifacts for Sketch and Review stages when model output lacks a proper local artifact.
-- Added lifecycle/evidence metadata when Council pushes artifacts into the workspace.
+- Validate UI/UX changes in a real visible Chrome browser. For layout changes, capture screenshots.
+- For interactive changes, click/tap/type the exact user-facing control in the rebuilt authenticated app.
+- Static tests, source assertions, served-asset checks, and logs do not replace real interaction when the change is interactive.
+- After Docker rebuilds or browser tests, check `/api/health` and recent `docker compose logs --tail=120 odysseus`.
+- Keep user worktree changes. Do not reset/revert unrelated files.
+- Do not use fake transports or generic artifact fallbacks as completion evidence. A failed artifact should become an explicit QA/blocker item.
+- Keep secrets out of Git, logs, screenshots, and shared docs. `data/`, `logs/`, `.env`, uploads, auth/session files, keys, and provider tokens are private.
 
-### Idea Loop And Obsidian Workspace
+## Current Runtime Notes
 
-- Added durable workspace API in `routes/workspace_routes.py`.
-- Added `static/js/workspace.js` with:
-  - Idea Loop columns for Idea, Sketch, and Review Build;
-  - Obsidian-style knowledge graph;
-  - artifact preview iframes for runnable HTML sketches/review builds;
-  - next-step Council prompts for approval -> sketch, approval -> final, and QA review.
-- Updated `static/style.css` with workspace, Idea Loop, artifact preview, and Obsidian graph styling.
-- Made Idea Loop stage gates visible:
-  - Idea: Council discussion, research findings, concepts and architecture, user approval gate.
-  - Sketch: executable prototype, screenshot critique, QA plan, user approval gate.
-  - Review Build: final build, QA evidence, documentation, deployment and knowledge storage.
-- Improved labels:
-  - `Approve -> Sketch`
-  - `Approve -> Final`
-  - `QA Review`
-- Fixed raw HTML leaking into card summaries; cards now show `[Runnable artifact attached]` and render previews separately.
-- Fixed workspace modal positioning on desktop and mobile.
-- On mobile, workspace surfaces no longer overlap each other.
+- Default Docker Compose binds Odysseus and bundled services to `127.0.0.1`.
+- Bundled services include ChromaDB, SearXNG, ntfy, and currently Speaches for local speech endpoints.
+- `docker-compose.yml` scopes Odysseus startup chown work with `ODYSSEUS_CHOWN_PATHS=/app /app/logs`; do not remove this unless startup scanning is intentionally redesigned.
+- Optional built-in Browser MCP is currently unavailable inside Odysseus because `@playwright/mcp@latest` is not installed in the container npx cache. It is optional and not blocking normal app use.
+- Windows host currently does not have working `git.exe` on PATH. PATH references `E:\Git\cmd`, but that drive is not mounted. Earlier commits used Python `dulwich`.
+- If Chrome shows stale UI after rebuild, unregister/bypass the service worker or use a fresh cache-busted target.
 
-### Browser, Logs, And Stability Fixes
+## Current O.R.A.C.L.E. Status
 
-- Tested through the real visible Chrome browser via CDP at `http://localhost:9223`.
-- Used screenshot-based review of the workflow and UI.
-- Added final validation screenshots under:
-  - `data/browser-workflow-check/103-directive-hardening-final-20260611-130759`
-- Fixed stale session/status noise:
-  - `routes/chat_routes.py`: `/api/chat/stream_status/{session_id}` now returns an idle payload instead of 404 when no stream is active.
-  - `routes/research_routes.py`: `/api/research/status/{session_id}` now returns an idle payload instead of 404 when no research is active.
-  - `routes/session_routes.py`: auth-disabled mode now handles owner checks consistently during local browser testing.
-  - `static/js/sessions.js`: stale session state is cleared before selecting dead sessions.
-- Downgraded expected TTS disabled state from `console.warn` to `console.debug` in `static/js/tts-ai.js`.
-- Added `mobile-web-app-capable` meta in `static/index.html`.
-- Cleaned prior email/config noise:
-  - email list returns configured:false instead of logging failures when email is not configured;
-  - optional dependency/startup fallbacks log as info where appropriate.
+O.R.A.C.L.E. is the current active feature focus, but not the whole project.
 
-### Docker And Local Configuration
+Latest scoped verdict: operational for the current Cartesia voice UX slice.
 
-- Rebuilt and restarted Docker several times during the fix/test loop.
-- Final state restored auth:
-  - `AUTH_ENABLED=true`
-- Final `docker compose ps` showed:
-  - `odysseus` up on `127.0.0.1:7000`
-  - `chromadb` up on `127.0.0.1:8100`
-  - `searxng` healthy on `127.0.0.1:8080`
-- Final Docker logs after auth restore showed no `WARNING`, `ERROR`, `404`, or `500` during the checked startup window.
+Working now:
 
-## Validation Performed
+- Cartesia mode uses proxy-backed Cartesia TTS for answer-highlight speech.
+- Nolan voice is wired: `65209f8e-6140-4a20-b819-3cc2e21da19b`.
+- Tiny presence acknowledgements such as `Got it.` may use fast browser TTS by design.
+- Voice-originated assistant responses speak a short answer highlight, not the full raw response.
+- Speech skips code blocks, file trees, command/log output, tables, links, and syntax-heavy fragments.
+- TTS playback mutes/rearms voice input to reduce speaker echo contaminating STT.
+- Cartesia STT finalizing races now defer/retry instead of becoming `cartesia_stt_socket_failed`.
 
-Commands run successfully:
+Latest verification:
 
-```powershell
-python -m py_compile routes\chat_routes.py routes\research_routes.py routes\session_routes.py
-python -m py_compile routes\workspace_routes.py routes\email_routes.py routes\email_helpers.py
-python -m pytest -q tests/test_workspace_routes.py
-```
+- `node --check static\js\voiceRuntime.js`
+- `node --check static\js\cartesiaRealtimeTts.js`
+- `node --check static\js\chat.js`
+- `node --check static\sw.js`
+- `node --test tests\realtime_voice_frontend.test.js` passed `59/59`
+- `python -m pytest tests\test_realtime_voice_routes.py tests\test_tts_routes.py -q` passed `50/50`
+- `docker compose up -d --build odysseus` completed
+- `/api/health` returned healthy at `2026-06-15T13:02:02.656564`
 
-```powershell
-docker run --rm -v "${PWD}:/work" -w /work odysseus-t-odysseus node --check static/js/group.js
-docker run --rm -v "${PWD}:/work" -w /work odysseus-t-odysseus node --check static/js/workspace.js
-docker run --rm -v "${PWD}:/work" -w /work odysseus-t-odysseus node --check static/js/sessions.js
-docker run --rm -v "${PWD}:/work" -w /work odysseus-t-odysseus node --check static/js/tts-ai.js
-```
+Remaining loops:
 
-Workspace tests:
+- `0` implementation loops for the current Cartesia Nolan/proxy/fail-closed answer-highlight + STT finalizing-race scope.
+- `1` HITL loop remains for subjective speaker/headphone confirmation: timbre, volume, echo, and spoken-turn latency.
 
-```text
-4 passed
-```
+## Other Important Areas
 
-Only test warnings were third-party deprecations from FastAPI/Starlette and SQLAlchemy.
+Knowledge and Council:
 
-Chrome validation covered:
+- Obsidian is the canonical knowledge store. Treat legacy Brain/Memory as compatibility.
+- Council agents currently receive Obsidian knowledge through injected context. Add a Council-safe read-only search tool only if agents need active queries during debate.
+- Council workflow tests must use at least two agents, both on `deepseek/deepseek-v4-flash`.
+- For Council changes, test the full path when possible: Phase 1 Idea -> Phase 2 Sketch -> Phase 3 Review/final product.
 
-- Easy task: local fuel price application.
-- Medium task: inventory control sketch/prototype.
-- Difficult task: clinic booking SaaS review build.
-- Idea, Sketch, and Review Build columns.
-- Artifact iframe rendering and control interaction.
-- Obsidian graph rendering and node click.
-- Mobile layout and overlap check.
-- Console and Docker log checks.
+Chat and session stability:
 
-## Obsidian Research Applied
+- The composer, model picker, sidebar New Chat, session materialization, and voice transcript submission are tightly coupled. Test the exact click/submit path.
+- If touching chat rendering, verify markdown, code/pre preservation, tool blocks, TTS buttons, and voice-originated answer narration.
 
-Official Obsidian docs used to inform the workspace surface:
+B.L.U.E.:
 
-- Graph view: https://obsidian.md/help/plugins/graph
-- Canvas: https://obsidian.md/help/plugins/canvas
-- Properties: https://obsidian.md/help/properties
-- Bases: https://obsidian.md/help/bases
+- B.L.U.E. learning-mode work exists in the repo/worktree. Use a fresh chat or isolate the latest assistant message for browser QA because generated prompts include required section labels that can appear elsewhere in history.
 
-The resulting platform direction is:
+Communications:
 
-- Graph view for relationships between requests, ideas, Council notes, sessions, and evidence.
-- Properties-like metadata through item status, tags, links, evidence, and lifecycle stage.
-- Bases-like filtered views through Idea Loop columns.
-- Canvas-like spatial thinking as a future improvement, not yet implemented.
+- WhatsApp is parked unless a real daily-use blocker appears. No fake transport is acceptable for completion; the first complete WhatsApp path must work against live personal QR auth and the host bridge.
+- Email/WhatsApp/contact work must respect owner boundaries, explicit send confirmation, diagnostics, queues/dead letters, and secret/privacy redaction.
 
-## Current Git/Worktree State
+Models and Cookbook:
 
-The repository root is still not synced with Git. Git is not available on the Windows host, so status was checked through the Docker image:
+- Cookbook storage in Docker lives under `data/huggingface` and `data/local`.
+- Docker GPU passthrough and llama.cpp CUDA are separate. `nvidia-smi` inside the container proves GPU access, not that llama.cpp has CUDA runtime support.
+- Ollama on the host should be configured as `http://host.docker.internal:11434/v1`.
 
-```powershell
-docker run --rm -v "${PWD}:/work" -w /work odysseus-t-odysseus git -c safe.directory=/work status --short
-```
+Security:
 
-Known modified files include:
+- Keep `AUTH_ENABLED=true` outside narrow local debugging.
+- Keep `LOCALHOST_BYPASS=false` outside local development.
+- Do not expose raw ChromaDB, SearXNG, ntfy, Ollama, vLLM, llama.cpp, databases, or provider APIs. Expose only authenticated Odysseus through a trusted proxy/private access layer.
+- Rotate any API key or token that was pasted into shared chat, screenshots, or logs.
 
-- `app.py`
-- `core/atomic_io.py`
-- `core/middleware.py`
-- `routes/chat_routes.py`
-- `routes/email_helpers.py`
-- `routes/email_routes.py`
-- `routes/research_routes.py`
-- `routes/session_routes.py`
-- `src/builtin_mcp.py`
-- `src/embeddings.py`
-- `src/task_scheduler.py`
-- `src/upload_handler.py`
-- `static/app.js`
-- `static/index.html`
+## Key Files
+
+- `CONTEXT-MAP.md` - domain map and naming boundaries.
+- `README.md` - setup, runtime, security, architecture overview.
+- `oracle.md` - O.R.A.C.L.E. UX contract, requirements, and evidence.
+- `app.py` - FastAPI entry point and startup wiring.
+- `core/` - auth, database, middleware, constants.
+- `routes/` - API routes for chat, sessions, memory, documents, models, voice, communications.
+- `src/` - model/agent/search/knowledge/runtime implementation.
+- `services/` - STT/TTS and integration services.
+- `static/app.js` and `static/js/` - browser UI and feature modules.
+- `tests/` - Python and Node regression coverage.
+- `docker-compose.yml`, `Dockerfile`, `docker/` - local runtime packaging.
+- `data/` and `logs/` - private runtime state; gitignored.
+
+O.R.A.C.L.E. hot files:
+
+- `static/js/voiceRuntime.js`
+- `static/js/cartesiaRealtimeStt.js`
+- `static/js/cartesiaRealtimeTts.js`
 - `static/js/chat.js`
-- `static/js/group.js`
-- `static/js/modalManager.js`
-- `static/js/modelPicker.js`
-- `static/js/models.js`
-- `static/js/sessions.js`
-- `static/js/tts-ai.js`
-- `static/style.css`
+- `static/js/voiceOrb.js`
+- `routes/realtime_voice_routes.py`
+- `src/realtime_voice/provider_tokens.py`
+- `tests/realtime_voice_frontend.test.js`
+- `tests/test_realtime_voice_routes.py`
+- `tests/test_tts_routes.py`
 
-Known untracked files/directories include:
+## Verification Shortcuts
 
-- `.openclaude/`
-- `docs/superpowers/specs/2026-06-10-unified-workspace-design.md`
-- `routes/workspace_routes.py`
-- `static/js/workspace.js`
-- `tests/test_workspace_routes.py`
-- `handoff.md`
-
-`git diff --check` only reported CRLF normalization warnings.
-
-## Important Notes For Next Session
-
-- Do not assume the GitHub version contains the local Council, Idea Loop, Obsidian, and workspace changes. These are local and not fully synced.
-- Keep using Docker for app execution.
-- Visible Chrome is available via CDP at `http://localhost:9223`.
-- If browser testing needs auth bypass, temporarily run:
+General health:
 
 ```powershell
-$env:AUTH_ENABLED='false'; docker compose up -d --force-recreate odysseus
+docker compose ps
+curl.exe -fsS http://127.0.0.1:7000/api/health
+docker compose logs --tail=120 odysseus
 ```
 
-Then restore immediately after testing:
+O.R.A.C.L.E. focused:
 
 ```powershell
-$env:AUTH_ENABLED='true'; docker compose up -d --force-recreate odysseus
+node --test tests\realtime_voice_frontend.test.js
+python -m pytest tests\test_realtime_voice_routes.py tests\test_tts_routes.py -q
+node --check static\js\voiceRuntime.js
+node --check static\js\cartesiaRealtimeTts.js
+node --check static\js\chat.js
+node --check static\sw.js
 ```
 
-- Always check Docker logs after rebuilds and browser actions.
-- The browser console was clean before auth was restored; after auth restore, the browser may show the login screen unless a valid session cookie exists.
-- The optional Built-in Browser MCP startup message is informational unless the user wants that MCP server installed.
+Context-sensitive docs:
 
-## Suggested Next Steps
+- Use `docs/context/*/CONTEXT.md` before changing terminology in a domain.
+- Use `oracle.md` before changing voice UX.
+- Use `README.md` before changing setup, deployment, or security assumptions.
 
-1. Commit or otherwise preserve the local workspace/Council changes before syncing with GitHub.
-2. Add broader tests for `routes/chat_routes.py`, `routes/research_routes.py`, and `routes/session_routes.py`.
-3. Implement direct Obsidian vault export/import if the workspace graph should become real Markdown files.
-4. Add first-class non-HTML artifact handling for APIs, CLI tools, mobile apps, desktop apps, and full-stack repos.
-5. Add a QA evidence collection surface so screenshots, logs, commands, and approval decisions are stored as first-class verification artifacts.
+## Suggested Next Work
+
+1. Run one real voice turn in Chrome with Cartesia selected and confirm audible Nolan answer-highlight playback.
+2. If O.R.A.C.L.E. still shows `cartesia_stt_socket_failed`, verify Chrome loaded service worker `odysseus-v399`.
+3. Restore or fix host Git on PATH, or keep using a deliberate non-interactive fallback until Git is available.
+4. Keep Council/Obsidian terminology aligned with `CONTEXT-MAP.md` and the relevant `docs/context/*/CONTEXT.md`.
+5. If work moves away from O.R.A.C.L.E., update this file by changing the active focus and preserving only essential current-state bullets.

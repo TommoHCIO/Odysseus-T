@@ -14,6 +14,10 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from services.memory.skill_imports import (
+    MATT_POCOCK_PROMOTED_BUCKETS,
+    import_matt_pocock_skills,
+)
 from services.memory.skills import SkillsManager
 from src.auth_helpers import get_current_user
 from core.middleware import require_admin
@@ -72,6 +76,17 @@ class SkillUpdateRequest(BaseModel):
     problem: Optional[str] = None
     solution: Optional[str] = None
     steps: Optional[List[str]] = None
+
+
+class SkillImportRequest(BaseModel):
+    buckets: List[str] = Field(default_factory=lambda: list(MATT_POCOCK_PROMOTED_BUCKETS))
+    status: str = "published"
+    update_existing: bool = True
+
+
+class SkillInvokeRequest(BaseModel):
+    query: str = Field("", max_length=200)
+    include_markdown: bool = True
 
 
 def _skill_test_task(skill: dict) -> str:
@@ -1079,6 +1094,42 @@ def setup_skills_routes(skills_manager: SkillsManager) -> APIRouter:
         except Exception:
             logger.debug("skill_added event dispatch failed", exc_info=True)
 
+    def _skill_summary(skill: dict) -> dict:
+        return {
+            "id": skill.get("id") or skill.get("name"),
+            "name": skill.get("name") or skill.get("id"),
+            "description": skill.get("description") or skill.get("title") or "",
+            "category": skill.get("category") or "general",
+            "status": skill.get("status") or "draft",
+            "confidence": skill.get("confidence"),
+            "source": skill.get("source"),
+            "tags": skill.get("tags") or [],
+        }
+
+    def _recommended_skills(query: str, skills: list[dict], *, exclude: Optional[str] = None) -> list[dict]:
+        visible = [s for s in skills if s.get("name") and s.get("name") != exclude]
+        text = (query or "").strip()
+        if text:
+            found = skills_manager.get_relevant_skills(text, visible, threshold=0.05, max_items=5)
+        else:
+            def _confidence(skill: dict) -> float:
+                try:
+                    return float(skill.get("confidence") or 0.0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            found = sorted(
+                visible,
+                key=lambda s: (
+                    0 if s.get("name") == "ship-feature" else 1,
+                    0 if s.get("status") == "published" else 1,
+                    -_confidence(s),
+                    s.get("category") or "",
+                    s.get("name") or "",
+                ),
+            )[:5]
+        return [_skill_summary(skill) for skill in found]
+
     @router.get("")
     async def list_skills(request: Request):
         user = _owner(request)
@@ -1093,6 +1144,80 @@ def setup_skills_routes(skills_manager: SkillsManager) -> APIRouter:
         user = _owner(request)
         idx = skills_manager.index_for(owner=user)
         return {"index": idx, "count": len(idx)}
+
+    @router.post("/import/matt-pocock")
+    async def import_matt_pocock(request: Request, body: SkillImportRequest):
+        """Import Matt Pocock's promoted public SKILL.md library live from GitHub."""
+        require_admin(request)
+        user = _owner(request)
+        buckets = body.buckets or list(MATT_POCOCK_PROMOTED_BUCKETS)
+        allowed = {*MATT_POCOCK_PROMOTED_BUCKETS, "deprecated", "in-progress", "personal"}
+        clean_buckets = []
+        for bucket in buckets:
+            bucket = (bucket or "").strip()
+            if not bucket:
+                continue
+            if bucket not in allowed:
+                raise HTTPException(400, f"Unsupported Matt Pocock skill bucket: {bucket}")
+            clean_buckets.append(bucket)
+        if not clean_buckets:
+            raise HTTPException(400, "At least one bucket is required")
+        if body.status not in {"draft", "published"}:
+            raise HTTPException(400, "status must be draft or published")
+        try:
+            result = import_matt_pocock_skills(
+                skills_manager,
+                owner=user,
+                buckets=clean_buckets,
+                status=body.status,
+                update_existing=body.update_existing,
+            )
+        except ValueError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        if result["counts"]["created"] or result["counts"]["updated"]:
+            _fire_skill_added(user)
+        result["total_visible"] = len(skills_manager.load(owner=user))
+        return result
+
+    @router.post("/invoke")
+    async def invoke_skill(request: Request, body: SkillInvokeRequest):
+        """Resolve a user-visible skill for explicit slash-command invocation."""
+        user = _owner(request)
+        skills = skills_manager.load(owner=user)
+        query = (body.query or "").strip()
+        slug = re.sub(r"[^a-z0-9]+", "-", query.lower()).strip("-")
+        match = next(
+            (
+                sk for sk in skills
+                if (sk.get("name") or "").lower() == query.lower()
+                or (sk.get("id") or "").lower() == query.lower()
+                or (sk.get("name") or "") == slug
+                or (sk.get("id") or "") == slug
+            ),
+            None,
+        )
+        if not match:
+            return {
+                "ok": True,
+                "found": False,
+                "query": query,
+                "recommendations": _recommended_skills(query, skills),
+                "count": len(skills),
+            }
+        _verify_owner(match, user)
+        result = {
+            "ok": True,
+            "found": True,
+            "query": query,
+            "skill": _skill_summary(match),
+            "recommendations": _recommended_skills(query, skills, exclude=match.get("name")),
+        }
+        if body.include_markdown:
+            md = skills_manager.read_skill_md(match.get("name"), owner=user)
+            if md is None:
+                raise HTTPException(404, "Skill source unavailable (legacy entry?)")
+            result["markdown"] = md
+        return result
 
     @router.get("/builtin")
     async def list_builtin_skills(request: Request):

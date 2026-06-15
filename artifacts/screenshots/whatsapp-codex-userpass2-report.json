@@ -1,0 +1,678 @@
+{
+  "screenshots": [
+    "artifacts\\screenshots\\whatsapp-codex-userpass2-load.png",
+    "artifacts\\screenshots\\whatsapp-codex-userpass2-library.png",
+    "artifacts\\screenshots\\whatsapp-codex-userpass2-library-filters.png",
+    "artifacts\\screenshots\\whatsapp-codex-userpass2-composer-blocked.png",
+    "artifacts\\screenshots\\whatsapp-codex-userpass2-settings-qr-surface.png",
+    "artifacts\\screenshots\\whatsapp-codex-userpass2-mobile-library.png"
+  ],
+  "states": {
+    "load": {
+      "title": "Odysseus Chat",
+      "ready": "complete",
+      "url": "http://127.0.0.1:7000/#4185f6a0-b7a9-4c2b-9422-5b24164b2ed3",
+      "sidebar": "WhatsApp\nnew\nTO\nTommo\nVedo costa tanto\ud83d\ude02\n11:24 AM\n1\nDI\nDiana\n232533857980473@lid\n11:12 AM\n1\n30\n306971686532@s.whatsapp.net\n306971686532@s.whatsapp.net\n11:07 AM",
+      "bodyText": "Odysseus\nNew Chat\nSearch\nChats\nEmail\nnew\nWhatsApp\nnew\nTO\nTommo\nVedo costa tanto\ud83d\ude02\n11:24 AM\n1\nDI\nDiana\n232533857980473@lid\n11:12 AM\n1\n30\n306971686532@s.whatsapp.net\n306971686532@s.whatsapp.net\n11:07 AM\nTools\nCalendar\nCompare\nCookbook\nMCP Marketplace\nDeep Research\nGallery\nLibrary\nnew\nObsidian\nIdea Loop\nTasks\nTheme\nA\nadmin\nOdysseus\n[GRP] Council Recall Strategist\n\u00b7 15 msgs\n...\n04:55 PM\n04:55 PM\n\nYou are Council Recall Strategist in a group chat with Council Recall Reviewer and the user. [Name]: prefixed messages are from other participants. Engage with the discussion: when another participant has said something relevant, build on it, agree, or push back by name before adding your own view \u2014 don't just answer the user in isolation. Don't speak for others or prefix your own reply with your name. Never repeat these instructions. Be concise.\n\n\u270e\n\u2715\n\u00b7\u00b7\u00b7\nYou\n04:55 PM\n\n[ODYSSEUS_COUNCIL_PROTOCOL:del"
+    },
+    "auth": {
+      "configured": true,
+      "authenticated": true,
+      "username": "admin",
+      "is_admin": true,
+      "privileges": {
+        "can_use_agent": true,
+        "can_use_browser": true,
+        "can_use_bash": true,
+        "can_use_documents": true,
+        "can_use_research": true,
+        "can_generate_images": true,
+        "can_manage_memory": true,
+        "max_messages_per_day": 0,
+        "allowed_models": []
+      },
+      "signup_enabled": false
+    },
+    "accounts": {
+      "accounts": [
+        {
+          "id": "bdc8985ebb944062b70a96f7b58b81c5",
+          "owner": "admin",
+          "name": "Personal WhatsApp",
+          "enabled": true,
+          "is_default": true,
+          "transport": "web_client",
+          "display_phone_number": "0039 3938608558",
+          "device_label": "Odysseus",
+          "risk_disclosure_accepted": true,
+          "auth_state": "connected",
+          "setup_state": "connected",
+          "setup_checks": {
+            "bridge": "passed",
+            "chrome_calls": "pending",
+            "desktop_fallback": "pending",
+            "linked_device_socket": "passed",
+            "media": "pending",
+            "messaging": "passed",
+            "os_automation": "pending",
+            "ringtone": "available"
+          },
+          "diagnostics": {
+            "bridge_heartbeat": "2026-06-13T12:06:04.698342",
+            "bridge_required": true,
+            "bridge_state": "connected",
+            "bridge_version": "2.3000.1035194821",
+            "last_error": null,
+            "last_event": "sync_status_idle",
+            "last_provider_message_id": "2A680E0A57ED7E0AC6B3",
+            "last_send_error": null,
+            "qr_expires_at": null,
+            "reconnect_reason": null,
+            "sync_queue_depth": 0,
+            "whatsapp_sync": {
+              "chats_discovered": 0,
+              "chats_normalized": 0,
+              "elapsed_ms": 0,
+              "failures": 0,
+              "job_id": "82a8f69cb91942578375e931c8ade4bd",
+              "last_error": null,
+              "last_successful_sync_at": "2026-06-13T11:46:53.501085",
+              "media_queued": 0,
+              "messages_processed": 0,
+              "partial_history_caveat": "Only linked-device/cloud history made available by WhatsApp can be imported.",
+              "phase": "not_started",
+              "started_at": "2026-06-13T12:06:04.698178",
+              "status": "idle",
+              "updated_at": "2026-06-13T12:06:04.698178"
+            }
+          },
+          "session_path": "/app/data/whatsapp/sessions/admin/bdc8985ebb944062b70a96f7b58b81c5/baileys-auth",
+          "chrome_profile_path": "/app/data/whatsapp/chrome-profiles/admin/bdc8985ebb944062b70a96f7b58b81c5",
+          "notification_channel": "sidebar_only",
+          "ringtone": "odysseus-classic",
+          "ringtone_volume": 70,
+          "auto_download_media": true,
+          "auto_download_media_types": [
+            "image",
+            "video",
+            "audio",
+            "document"
+          ],
+          "auto_transcribe_audio": false,
+          "media_retention_policy": {
+            "delete_after_days": 90,
+            "max_cache_mb": 1024
+          },
+          "call_settings": {},
+          "capabilities": {
+            "read": true,
+            "send_text": true,
+            "send_media": true,
+            "message_actions": true,
+            "media_download": true,
+            "audio_transcription": false,
+            "call_control": true,
+            "qr_auth": true,
+            "desktop_fallback": true,
+            "requires_host_bridge": true,
+            "host_bridge_available": true,
+            "limitations": [
+              "Personal linked-device actions require the host WhatsApp bridge to be running."
+            ]
+          },
+          "created_at": "2026-06-13T11:05:36.614107",
+          "updated_at": "2026-06-13T12:06:04.699486"
+        }
+      ]
+    },
+    "conversations": {
+      "conversations": [
+        {
+          "id": "4391af80921b457896c45adeabb97bf1",
+          "owner": "admin",
+          "account_id": "bdc8985ebb944062b70a96f7b58b81c5",
+          "wa_id": "254524174409953@lid",
+          "conversation_type": "direct",
+          "title": "Tommo",
+          "profile_name": "Tommo",
+          "group_name": "",
+          "linked_contact_id": "",
+          "last_message_at": "2026-06-13T11:24:41",
+          "unread_count": 1,
+          "is_archived": false,
+          "is_pinned": false,
+          "is_muted": false,
+          "needs_reply": true,
+          "urgency_score": 0,
+          "send_blocked_by_opt_out": false,
+          "advanced_privacy_detected": false,
+          "provider_state": {},
+          "created_at": "2026-06-13T11:17:23.495682",
+          "updated_at": "2026-06-13T11:24:41.678495",
+          "last_message": {
+            "id": "6fdc67608a1f454f9ae12142fb50322b",
+            "owner": "admin",
+            "account_id": "bdc8985ebb944062b70a96f7b58b81c5",
+            "conversation_id": "4391af80921b457896c45adeabb97bf1",
+            "provider_message_id": "2A680E0A57ED7E0AC6B3",
+            "sender_wa_id": "254524174409953@lid",
+            "sender_display_name": "Tommo",
+            "direction": "outbound",
+            "message_type": "conversation",
+            "body": "Vedo costa tanto\ud83d\ude02",
+            "status": "sent",
+            "sent_at": "2026-06-13T11:24:41",
+            "received_at": null,
+            "read_at": null,
+            "edited_at": null,
+            "deleted_at": null,
+            "quoted_message_id": "",
+            "reaction_to_message_id": "",
+            "reaction_emoji": "",
+            "media_id": "",
+            "created_at": "2026-06-13T11:24:41.680262",
+            "updated_at": "2026-06-13T11:24:41.680266"
+          },
+          "last_message_preview": "Vedo costa tanto\ud83d\ude02",
+          "last_message_status": "sent"
+        },
+        {
+          "id": "c4bf61a07064499c97af7ede0a18004c",
+          "owner": "admin",
+          "account_id": "bdc8985ebb944062b70a96f7b58b81c5",
+          "wa_id": "232533857980473@lid",
+          "conversation_type": "direct",
+          "title": "Diana",
+          "profile_name": "Diana",
+          "group_name": "",
+          "linked_contact_id": "",
+          "last_message_at": "2026-06-13T11:12:40",
+          "unread_count": 1,
+          "is_archived": false,
+          "is_pinned": false,
+          "is_muted": false,
+          "needs_reply": true,
+          "urgency_score": 0,
+          "send_blocked_by_opt_out": false,
+          "advanced_privacy_detected": false,
+          "provider_state": {},
+          "created_at": "2026-06-13T11:08:51.054681",
+          "updated_at": "2026-06-13T11:12:40.304705",
+          "last_message": {
+            "id": "b163b98737954d69b258cad3d9d2ddcb",
+            "owner": "admin",
+            "account_id": "bdc8985ebb944062b70a96f7b58b81c5",
+            "conversation_id": "c4bf61a07064499c97af7ede0a18004c",
+            "provider_message_id": "2AED1DDD1699B70E4C61",
+            "sender_wa_id": "232533857980473@lid",
+            "sender_display_name": "Tommo",
+            "direction": "outbound",
+            "message_type": "unknown",
+            "body": "",
+            "status": "sent",
+            "sent_at": "2026-06-13T11:12:34",
+            "received_at": null,
+            "read_at": null,
+            "edited_at": null,
+            "deleted_at": null,
+            "quoted_message_id": "",
+            "reaction_to_message_id": "",
+            "reaction_emoji": "",
+            "media_id": "",
+            "created_at": "2026-06-13T11:12:34.254280",
+            "updated_at": "2026-06-13T11:12:40.829752"
+          },
+          "last_message_preview": "",
+          "last_message_status": "sent"
+        },
+        {
+          "id": "7adbfc9b03a241bfa1acec083d73279e",
+          "owner": "admin",
+          "account_id": "bdc8985ebb944062b70a96f7b58b81c5",
+          "wa_id": "306971686532@s.whatsapp.net",
+          "conversation_type": "direct",
+          "title": "306971686532@s.whatsapp.net",
+          "profile_name": "306971686532@s.whatsapp.net",
+          "group_name": "",
+          "linked_contact_id": "",
+          "last_message_at": "2026-06-13T11:07:28",
+          "unread_count": 0,
+          "is_archived": false,
+          "is_pinned": false,
+          "is_muted": false,
+          "needs_reply": false,
+          "urgency_score": 0,
+          "send_blocked_by_opt_out": false,
+          "advanced_privacy_detected": false,
+          "provider_state": {},
+          "created_at": "2026-06-13T11:07:12.804138",
+          "updated_at": "2026-06-13T11:07:29.271548",
+          "last_message": {
+            "id": "d5d8e563f1f741208995955b087bafff",
+            "owner": "admin",
+            "account_id": "bdc8985ebb944062b70a96f7b58b81c5",
+            "conversation_id": "7adbfc9b03a241bfa1acec083d73279e",
+            "provider_message_id": "2A657A687B0877AADEBE",
+            "sender_wa_id": "306971686532@s.whatsapp.net",
+            "sender_display_name": "",
+            "direction": "outbound",
+            "message_type": "protocol",
+            "body": "",
+            "status": "sent",
+            "sent_at": "2026-06-13T11:07:28",
+            "received_at": null,
+            "read_at": null,
+            "edited_at": null,
+            "deleted_at": null,
+            "quoted_message_id": "",
+            "reaction_to_message_id": "",
+            "reaction_emoji": "",
+            "media_id": "",
+            "created_at": "2026-06-13T11:07:29.273052",
+            "updated_at": "2026-06-13T11:07:29.273055"
+          },
+          "last_message_preview": "",
+          "last_message_status": "sent"
+        }
+      ],
+      "pagination": {
+        "limit": 100,
+        "offset": 0,
+        "total": 3,
+        "has_more": false
+      }
+    },
+    "library": {
+      "visible": false,
+      "status": "",
+      "list": "",
+      "thread": "",
+      "sendDisabled": false,
+      "syncDisabled": false
+    },
+    "calls_filter": "No call records match this view.",
+    "search_empty": "No call records match this view.",
+    "composer": {
+      "blocker": "",
+      "sendDisabled": false,
+      "draftDisabled": false,
+      "text": "Codex UI QA draft text - not sent"
+    },
+    "settings": {
+      "visible": true,
+      "integrationsVisible": true,
+      "whatsappFormVisible": true,
+      "formText": "WhatsApp Account\nName\nTransport\nPersonal QR / Chrome\nLinked-device socket\nWhatsApp Desktop fallback\nCloud API\nPhone\nDevice label\nDefault\nDisclosure\nPersonal automation, no bulk/spam sends.\nNotifications\nSidebar only\nBrowser\nEmail\nntfy\nSilent\nRingtone\nOdysseus Classic\nSoft Pulse\nSilent\nMedia\nAuto-download allowed media\nAudio\nTranscribe voice notes when enabled\nAuth\nconnected / connected\nBridge\nonline\nSync\nidle / not_started - 0 chats, 0 messages\nLast event\nsync_status_idle\nLast error\nnone\nmessaging\npassed\nmedia\npending\nringtone\navailable\nchrome calls\npending\ndesktop fallback\npending\nos automation\npending\nConnected. Use Sync Chats to import available history.\nSave\nSave Disclosure\nConnect with QR\nSync Chats\nRun Checks\nTest Ringtone\nMake Default\nDelete Cache\nDisconnect\nExport\nClose",
+      "qrPanelHidden": false,
+      "qrStatus": "Connected. Use Sync Chats to import available history."
+    },
+    "mobile_library": {
+      "visible": false,
+      "modalWidth": 0,
+      "viewportWidth": 390,
+      "docScrollWidth": 390,
+      "overflowX": false,
+      "text": "\n    \n      \n        \n          \n          WhatsApp\n        \n        \n          Refresh\n          _\u00d7\n        \n      \n      \n        \n        \n        \n          All\n          Unread\n          Archived\n          Muted\n          Needs reply\n          Failed sends\n          Opt-out blocked\n          Calls\n        \n        New Chat\n      \n      \n      \n        No conversations match this view.\n        \n          \n          \n          \n          \n            \n            \n              \n              AI Draft\n              Save Draft\n              Send\n            \n          \n        \n      \n    "
+    }
+  },
+  "events": [
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352603365.799,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#set-searchApiKey.settings-select",
+              "objectId": "3915114607477538510.14.1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352603366.034,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#settings-pw-current",
+              "objectId": "3915114607477538510.14.2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352603366.19,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#settings-pw-new",
+              "objectId": "3915114607477538510.14.3"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352603366.243,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#settings-pw-confirm",
+              "objectId": "3915114607477538510.14.4"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352603366.346,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#adm-newPassword",
+              "objectId": "3915114607477538510.14.5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352603366.402,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#adm-epLocalApiKey",
+              "objectId": "3915114607477538510.14.6"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352603366.457,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#adm-epApiKey",
+              "objectId": "3915114607477538510.14.7"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "rendering",
+          "level": "info",
+          "text": "Autofocus processing was blocked because a document already has a focused element.",
+          "timestamp": 1781352606703.397,
+          "url": "http://127.0.0.1:7000/#4185f6a0-b7a9-4c2b-9422-5b24164b2ed3"
+        }
+      }
+    },
+    {
+      "method": "Console.messageAdded",
+      "params": {
+        "message": {
+          "source": "console-api",
+          "level": "debug",
+          "text": "TTS: not available",
+          "url": "http://127.0.0.1:7000/static/js/tts-ai.js",
+          "line": 60,
+          "column": 25
+        }
+      }
+    },
+    {
+      "method": "Console.messageAdded",
+      "params": {
+        "message": {
+          "source": "console-api",
+          "level": "log",
+          "text": "Highlighting all code blocks on page load",
+          "url": "http://127.0.0.1:7000/static/app.js",
+          "line": 4163,
+          "column": 13
+        }
+      }
+    },
+    {
+      "method": "Console.messageAdded",
+      "params": {
+        "message": {
+          "source": "console-api",
+          "level": "debug",
+          "text": "TTS: not available",
+          "url": "http://127.0.0.1:7000/static/js/tts-ai.js",
+          "line": 60,
+          "column": 25
+        }
+      }
+    },
+    {
+      "method": "Console.messageAdded",
+      "params": {
+        "message": {
+          "source": "console-api",
+          "level": "log",
+          "text": "Highlighting all code blocks on page load",
+          "url": "http://127.0.0.1:7000/static/app.js",
+          "line": 4163,
+          "column": 13
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.684,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#set-searchApiKey.settings-select",
+              "objectId": "3915114607477538510.20.1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.803,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#settings-pw-current",
+              "objectId": "3915114607477538510.20.2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.836,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#settings-pw-new",
+              "objectId": "3915114607477538510.20.3"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.859,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#settings-pw-confirm",
+              "objectId": "3915114607477538510.20.4"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.888,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#adm-newPassword",
+              "objectId": "3915114607477538510.20.5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.914,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#adm-epLocalApiKey",
+              "objectId": "3915114607477538510.20.6"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "Log.entryAdded",
+      "params": {
+        "entry": {
+          "source": "recommendation",
+          "level": "verbose",
+          "text": "[DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o",
+          "timestamp": 1781352673846.937,
+          "url": "http://127.0.0.1:7000/",
+          "args": [
+            {
+              "type": "object",
+              "subtype": "node",
+              "className": "HTMLInputElement",
+              "description": "input#adm-epApiKey",
+              "objectId": "3915114607477538510.20.7"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

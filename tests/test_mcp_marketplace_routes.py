@@ -65,6 +65,24 @@ def test_marketplace_refresh_and_entries(monkeypatch, tmp_path):
     assert any(item["id"] == "filesystem" for item in entries.json())
 
 
+def test_marketplace_entries_can_return_filtered_discovery_payload(monkeypatch, tmp_path):
+    monkeypatch.setenv("ODYSSEUS_MCP_MARKETPLACE_DIR", str(tmp_path))
+    client = make_client(monkeypatch)
+    client.post("/api/mcp/marketplace/catalogs/refresh")
+    client.post("/api/mcp/marketplace/install/filesystem", json={"config": {"root": str(tmp_path)}})
+
+    response = client.get("/api/mcp/marketplace/entries?q=file&runtime=npm&source=odysseus-curated&include_meta=true")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [entry["id"] for entry in payload["entries"]] == ["filesystem"]
+    assert payload["entries"][0]["installed"] is True
+    assert payload["entries"][0]["installed_status"] == "connected"
+    assert payload["total"] >= payload["filtered"] == 1
+    assert "facets" in payload
+    assert any(item["value"] == "npm" for item in payload["facets"]["runtimes"])
+
+
 def test_marketplace_refresh_uses_external_registry_sources(monkeypatch):
     called = {}
 

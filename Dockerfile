@@ -23,8 +23,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python deps first (layer cache)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ARG INSTALL_LOCAL_STT=false
+COPY requirements.txt requirements-local-stt.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+    && if [ "$INSTALL_LOCAL_STT" = "true" ]; then \
+        pip install --no-cache-dir -r requirements-local-stt.txt; \
+    fi
+
+# Install Node deps for local JS tooling and the WhatsApp linked-device bridge.
+COPY package*.json ./
+RUN npm ci --omit=dev
 
 # Copy app code
 COPY . .

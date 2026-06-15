@@ -164,6 +164,7 @@ if AUTH_ENABLED:
         "/api/auth/features",
         "/api/auth/settings",
         "/api/auth/integrations/presets",
+        "/api/whatsapp/bridge/events",
         "/api/health",
         "/api/version",
         "/login",
@@ -481,6 +482,8 @@ skills_manager    = components["skills_manager"]
 from services.tts import get_tts_service
 
 tts_service = get_tts_service()
+from src.realtime_voice.voice_narrator import VoiceNarrator
+voice_narrator = VoiceNarrator(tts_service)
 logger.info("TTS service initialized (provider managed via admin settings)")
 
 # ========= EXCEPTION HANDLERS =========
@@ -538,6 +541,8 @@ from routes.knowledge_routes import setup_knowledge_routes
 app.include_router(setup_knowledge_routes(memory_manager, memory_vector=memory_vector))
 from routes.skills_routes import setup_skills_routes
 app.include_router(setup_skills_routes(skills_manager))
+from routes.blue_routes import setup_blue_routes
+app.include_router(setup_blue_routes())
 
 # Chat
 from routes.chat_routes import setup_chat_routes
@@ -595,6 +600,17 @@ stt_service = get_stt_service()
 from routes.stt_routes import setup_stt_routes
 app.include_router(setup_stt_routes(stt_service))
 logger.info("STT service initialized (provider managed via settings)")
+
+# O.R.A.C.L.E. realtime voice control plane
+from routes.realtime_voice_routes import setup_realtime_voice_routes
+from routes.session_routes import _verify_session_owner as _verify_voice_session_owner
+app.include_router(setup_realtime_voice_routes(
+    verify_owner=_verify_voice_session_owner,
+    stt_service=stt_service,
+    tts_service=tts_service,
+    voice_narrator=voice_narrator,
+))
+logger.info("Realtime voice control plane initialized")
 
 # Documents (artifacts/canvas)
 from routes.document_routes import setup_document_routes
@@ -697,6 +713,10 @@ app.include_router(setup_obsidian_routes())
 # Email
 from routes.email_routes import setup_email_routes
 app.include_router(setup_email_routes())
+
+# WhatsApp
+from routes.whatsapp_routes import setup_whatsapp_routes
+app.include_router(setup_whatsapp_routes())
 
 from routes.vault_routes import setup_vault_routes
 app.include_router(setup_vault_routes())
@@ -842,6 +862,7 @@ async def startup_event():
     # GC tasks created with `asyncio.create_task(...)` before they finish.
     _startup_tasks: list[asyncio.Task] = getattr(app.state, "_startup_tasks", [])
     app.state._startup_tasks = _startup_tasks
+    await voice_narrator.start()
     if upload_cleanup_func:
         upload_cleanup_task = asyncio.create_task(upload_cleanup_func())
     # Always-on monitor that auto-continues the agent when a background bash
@@ -1050,6 +1071,10 @@ async def shutdown_event():
             await upload_cleanup_task
         except asyncio.CancelledError:
             pass
+    try:
+        await voice_narrator.stop()
+    except Exception as e:
+        logger.warning(f"Voice narrator shutdown error: {e}")
     # Stop task scheduler (no-op if it never started under the gate)
     try:
         await task_scheduler.stop()

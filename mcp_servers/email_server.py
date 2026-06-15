@@ -57,6 +57,65 @@ def _clean_header_value(value) -> str:
     return re.sub(r"[\r\n]+[ \t]*", " ", str(value)).strip()
 
 
+def _email_lc(addr: str) -> str:
+    return (addr or "").strip().lower()
+
+
+def _own_addresses_from_cfg(cfg: dict) -> set[str]:
+    return {
+        _email_lc(v)
+        for v in (
+            cfg.get("imap_user"),
+            cfg.get("smtp_user"),
+            cfg.get("from_address"),
+        )
+        if _email_lc(v)
+    }
+
+
+def _exclude_tokens(exclude_recipients) -> set[str]:
+    if not exclude_recipients:
+        return set()
+    if isinstance(exclude_recipients, str):
+        raw = [exclude_recipients]
+    else:
+        raw = [str(x) for x in exclude_recipients if str(x or "").strip()]
+    tokens: set[str] = set()
+    for item in raw:
+        for name, addr in email.utils.getaddresses([item]):
+            if addr:
+                tokens.add(_email_lc(addr))
+            if name:
+                tokens.add(name.strip().lower())
+        for part in item.split(","):
+            part = part.strip().lower()
+            if part:
+                tokens.add(part)
+    return tokens
+
+
+def _recipient_is_excluded(name: str, addr: str, own_addrs: set[str], exclude_tokens: set[str]) -> bool:
+    addr_l = _email_lc(addr)
+    if not addr_l:
+        return True
+    if addr_l in own_addrs:
+        return True
+    name_l = (name or "").strip().lower()
+    full_l = f"{name_l} {addr_l}".strip()
+    for token in exclude_tokens:
+        if not token:
+            continue
+        if "@" in token and token == addr_l:
+            return True
+        if "@" not in token and (token in name_l or token in full_l):
+            return True
+    return False
+
+
+def _format_addr(name: str, addr: str) -> str:
+    return email.utils.formataddr((name, addr)) if name else addr
+
+
 def _db_path() -> Path:
     return DATA_DIR / "app.db"
 
@@ -663,6 +722,8 @@ def _read_email(uid=None, message_id=None, folder="INBOX", account=None):
 
     subject = _decode_header(msg.get("Subject", "(no subject)"))
     sender = _decode_header(msg.get("From", "unknown"))
+    to_str = _decode_header(msg.get("To", ""))
+    cc_str = _decode_header(msg.get("Cc", ""))
     date_str = msg.get("Date", "")
     message_id_header = msg.get("Message-ID", "")
     body = _extract_text(msg)
@@ -680,6 +741,8 @@ def _read_email(uid=None, message_id=None, folder="INBOX", account=None):
         "subject": subject,
         "from": sender_name or sender_addr,
         "from_address": sender_addr,
+        "to": to_str,
+        "cc": cc_str,
         "date": date_str,
         "body": body[:8000],
         "attachments": attachments,
@@ -835,8 +898,9 @@ def _send_email(to, subject, body, in_reply_to=None, references=None, cc=None, b
     }
 
 
-def _reply_to_email(uid, body, folder="INBOX", reply_all=False, account=None):
+def _reply_to_email(uid, body, folder="INBOX", reply_all=False, account=None, exclude_recipients=None):
     """Reply to an existing email by UID. Threads via In-Reply-To/References."""
+    cfg = _load_config(account)
     conn = _imap_connect(account)
     conn.select(folder, readonly=True)
     status, msg_data = conn.uid("FETCH", _b(uid), "(RFC822)")
@@ -858,11 +922,21 @@ def _reply_to_email(uid, body, folder="INBOX", reply_all=False, account=None):
 
     cc = None
     if reply_all:
+        own_addrs = _own_addresses_from_cfg(cfg)
+        exclude = _exclude_tokens(exclude_recipients)
         cc_addrs = []
+        seen_addrs = set()
         for header_name in ("To", "Cc"):
-            for _, addr in email.utils.getaddresses([orig.get(header_name, "")]):
-                if addr and addr != sender_addr:
-                    cc_addrs.append(addr)
+            for name, addr in email.utils.getaddresses([orig.get(header_name, "")]):
+                addr_l = _email_lc(addr)
+                if addr_l == _email_lc(sender_addr):
+                    continue
+                if _recipient_is_excluded(name, addr, own_addrs, exclude):
+                    continue
+                if addr_l in seen_addrs:
+                    continue
+                seen_addrs.add(addr_l)
+                cc_addrs.append(_format_addr(name, addr))
         if cc_addrs:
             cc = ", ".join(cc_addrs)
 
@@ -1127,6 +1201,8 @@ async def list_tools() -> list[Tool]:
                     "body": {"type": "string", "description": "Plain text body"},
                     "cc": {"type": "string", "description": "CC address(es), comma-separated (optional)"},
                     "bcc": {"type": "string", "description": "BCC address(es), comma-separated (optional)"},
+                    "in_reply_to": {"type": "string", "description": "Message-ID to put in In-Reply-To when deliberately threading a known email (optional)"},
+                    "references": {"type": "string", "description": "References header for a deliberately threaded email (optional)"},
                     **ACCOUNT_PROP,
                 },
                 "required": ["to", "subject", "body"],
@@ -1138,7 +1214,9 @@ async def list_tools() -> list[Tool]:
                 "Reply to an existing email by UID. Automatically threads the reply with "
                 "In-Reply-To and References headers, prefixes 'Re:' on the subject, and "
                 "uses the original sender as the recipient. Set reply_all=true to also CC "
-                "the original To/Cc recipients. For follow-up 'reply ...' requests, use "
+                "the original To/Cc recipients. Use exclude_recipients when the user says "
+                "not to include named people or addresses from the original recipients. "
+                "For follow-up 'reply ...' requests, use "
                 "the exact UID from the latest list_emails/read_email result; never invent UID 1."
             ),
             inputSchema={
@@ -1148,6 +1226,11 @@ async def list_tools() -> list[Tool]:
                     "body": {"type": "string", "description": "Reply body text"},
                     "folder": {"type": "string", "description": "IMAP folder (default: INBOX)", "default": "INBOX"},
                     "reply_all": {"type": "boolean", "description": "Reply to all recipients (default: false)", "default": False},
+                    "exclude_recipients": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Names or email addresses to remove from reply-all Cc, e.g. ['Alessandra', 'mario@example.com']",
+                    },
                     **ACCOUNT_PROP,
                 },
                 "required": ["uid", "body"],
@@ -1448,6 +1531,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             text = (
                 f"**Subject:** {result['subject']}\n"
                 f"**From:** {result['from']} ({result['from_address']})\n"
+                f"**To:** {result.get('to', '')}\n"
+                f"**Cc:** {result.get('cc', '')}\n"
                 f"**Date:** {result['date']}\n"
                 f"**UID:** {result['uid']}\n"
                 f"**Account:** {result.get('account', 'default')} ({result.get('account_email', '')})\n"
@@ -1474,6 +1559,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 body=body,
                 cc=arguments.get("cc"),
                 bcc=arguments.get("bcc"),
+                in_reply_to=arguments.get("in_reply_to"),
+                references=arguments.get("references"),
                 account=acct,
             )
             acct_note = f" (from {result['account']})" if result.get("account") else ""
@@ -1490,6 +1577,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 folder=arguments.get("folder", "INBOX"),
                 reply_all=bool(arguments.get("reply_all", False)),
                 account=acct,
+                exclude_recipients=arguments.get("exclude_recipients"),
             )
             if "error" in result:
                 return [TextContent(type="text", text=f"Error: {result['error']}")]

@@ -9,15 +9,16 @@ import modelsModule from './js/models.js';
 import ragModule from './js/rag.js';
 import presetsModule from './js/presets.js';
 import searchModule from './js/search.js';
-import chatModule from './js/chat.js';
+import chatModule from './js/chat.js?v=20260614emoji2';
 import compareModule from './js/compare/index.js';
 import documentModule from './js/document.js';
 import searchChatModule from './js/search-chat.js';
-import markdownModule from './js/markdown.js';
-import chatRenderer from './js/chatRenderer.js';
+import markdownModule from './js/markdown.js?v=20260614emoji2';
+import chatRenderer from './js/chatRenderer.js?v=20260614emoji2';
 import sessionModule from './js/sessions.js';
 import memoryModule from './js/memory.js';
 import voiceRecorderModule from './js/voiceRecorder.js';
+import realtimeVoiceModule from './js/realtimeVoice.js';
 import censorModule from './js/censor.js';
 import galleryModule from './js/gallery.js';
 import tasksModule from './js/tasks.js';
@@ -117,6 +118,85 @@ async function _createDirectChatFromPreferredModel() {
 
   return false;
 }
+
+function _clearToFreshChatView() {
+  try {
+    const prevId = sessionModule && sessionModule.getCurrentSessionId ? sessionModule.getCurrentSessionId() : null;
+    if (chatModule && chatModule.detachCurrentStream) chatModule.detachCurrentStream(prevId);
+    else if (chatModule && chatModule.abortCurrentRequest) chatModule.abortCurrentRequest();
+  } catch (e) {
+    console.warn('fresh chat stream detach failed:', e);
+  }
+
+  if (window.groupModule && window.groupModule.isActive && window.groupModule.isActive()) {
+    try { window.groupModule.stopGroup(); } catch {}
+    if (window._syncGroupIndicator) window._syncGroupIndicator(false);
+  }
+  if (sessionModule && sessionModule.setCurrentSessionId) sessionModule.setCurrentSessionId(null);
+  if (documentModule && documentModule.closePanel) documentModule.closePanel();
+  if (researchPanelModule && researchPanelModule.isOpen && researchPanelModule.isOpen()) researchPanelModule.closePanel();
+  if (presetsModule && presetsModule.deactivateCharacter) presetsModule.deactivateCharacter();
+
+  const box = document.getElementById('chat-history');
+  if (box) box.innerHTML = '';
+  if (chatModule && chatModule.showWelcomeScreen) chatModule.showWelcomeScreen();
+
+  const docBtn = document.getElementById('overflow-doc-btn');
+  if (docBtn) {
+    docBtn.classList.remove('active', 'has-docs');
+    docBtn.style.display = '';
+  }
+  const docInd = document.getElementById('doc-indicator-btn');
+  if (docInd) docInd.classList.remove('visible', 'active');
+  const overflowRes = document.getElementById('overflow-research-btn');
+  if (overflowRes) overflowRes.classList.remove('active');
+  const metaEl = document.getElementById('current-meta');
+  if (metaEl) metaEl.textContent = 'New Chat';
+  const message = document.getElementById('message');
+  if (message) {
+    message.disabled = false;
+    message.value = '';
+    try { message.focus(); } catch (_) {}
+  }
+  document.querySelectorAll('.session-item.active, .list-item.active-session').forEach(item => {
+    item.classList.remove('active', 'active-session');
+  });
+}
+
+async function startNewChatFromSidebar(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+  }
+  if (!sessionModule) return;
+  if (compareModule && compareModule.isActive && compareModule.isActive()) {
+    compareModule.deactivate(true);
+    return;
+  }
+
+  const incognitoToggle = document.getElementById('incognito-toggle');
+  if (incognitoToggle && incognitoToggle.checked) {
+    const incognitoBtn = document.getElementById('incognito-btn');
+    if (incognitoBtn) incognitoBtn.click();
+    else incognitoToggle.checked = false;
+  }
+  if (presetsModule && presetsModule.deactivateCharacter) presetsModule.deactivateCharacter();
+  const researchToggle = document.getElementById('research-toggle');
+  if (researchToggle && researchToggle.checked && window._syncResearchIndicator) {
+    window._syncResearchIndicator(false);
+  }
+  if (await _createDirectChatFromPreferredModel()) return;
+  _clearToFreshChatView();
+}
+
+document.addEventListener('click', (event) => {
+  const trigger = event.target && event.target.closest
+    ? event.target.closest('#sidebar-new-chat-btn, #rail-new-session')
+    : null;
+  if (!trigger) return;
+  startNewChatFromSidebar(event);
+}, true);
 
 // ============================================
 // EVENT LISTENERS INITIALIZATION
@@ -1620,7 +1700,7 @@ function initializeEventListeners() {
       const mpw = el('model-picker-wrap');
       if (mpw) mpw.style.display = '';
       modelsModule.setCouncilSelectionMode(true, startCouncilFromModelSelector);
-      if (!options.silent) uiModule.showToast('Choose Council agents from the model list');
+      if (!options.silent) uiModule.showToast('Choose Council agents from the model picker');
       return true;
     }
 
@@ -2007,7 +2087,7 @@ function initializeEventListeners() {
     if (!inputLeft || !overflowMenu || !overflowWrapper) return;
 
     // Buttons that can be collapsed (in reverse priority — last collapsed first)
-    const collapsibleIds = ['bash-toggle-btn', 'web-toggle-btn'];
+    const collapsibleIds = ['bash-toggle-btn', 'web-toggle-btn', 'oracle-voice-btn'];
     const collapsibleBtns = collapsibleIds.map(id => el(id)).filter(Boolean);
     // Map of toolbar btn id → overflow mirror element (created dynamically)
     const overflowMirrors = new Map();
@@ -2424,7 +2504,6 @@ function initializeEventListeners() {
     'sidebar-search':      '#sidebar-search-btn',
     'sessions-section':    '#sessions-section',
     'email-section':       '#email-section',
-    'models-section':      '#models-section',
     'tools-section':       '#tools-section',
     // Per-tool visibility — fine-grained control over which entries show
     // inside the Tools section in the sidebar.
@@ -2446,6 +2525,7 @@ function initializeEventListeners() {
     'web-toggle-btn':      '#web-toggle-btn',
     'doc-toggle-btn':      '#overflow-doc-btn',
     'rag-toggle-btn':      '#overflow-rag-btn',
+    'oracle-voice-btn':    '#oracle-voice-btn',
     'bash-toggle-btn':     '#bash-toggle-btn',
     'overflow-plus-btn':   '.overflow-wrapper',
     'mode-toggle':         '.mode-toggle',
@@ -2456,7 +2536,7 @@ function initializeEventListeners() {
   };
 
   // Keys hidden by default on first run (no localStorage yet)
-  const UI_VIS_DEFAULT_OFF = new Set(['models-section', 'rag-toggle-btn']);
+  const UI_VIS_DEFAULT_OFF = new Set(['rag-toggle-btn', 'text-emojis']);
 
   // Keys that need admin to toggle off (reserved for future use)
   const UI_VIS_ADMIN_ONLY = new Set([]);
@@ -2484,11 +2564,8 @@ function initializeEventListeners() {
     document.querySelectorAll('.section[draggable]').forEach(el => {
       el.setAttribute('draggable', dragEnabled ? 'true' : 'false');
     });
-    // Text-only emojis toggle. Default is ON (the checkbox defaults to
-    // checked because text-emojis isn't in UI_VIS_DEFAULT_OFF), so treat
-    // an absent value as enabled — otherwise the toggle looked on at
-    // startup but the effect only activated after the user flipped it.
-    applyTextEmojis(state['text-emojis'] !== false);
+    // Text-only emojis is opt-in. Default keeps emoji SVG rendering enabled.
+    applyTextEmojis(state['text-emojis'] === true);
     // Hide thinking sections toggle (show-thinking: checked=show, unchecked=hide)
     document.body.classList.toggle('hide-thinking', state['show-thinking'] === false);
   }
@@ -3159,10 +3236,7 @@ function initializeEventListeners() {
 
   const sidebarNewChatBtn = el('sidebar-new-chat-btn');
   if (sidebarNewChatBtn) {
-    sidebarNewChatBtn.addEventListener('click', () => {
-      const brandBtn = el('sidebar-brand-btn');
-      if (brandBtn) brandBtn.click();
-    });
+    sidebarNewChatBtn.addEventListener('click', startNewChatFromSidebar);
   }
 
   // Delete session button on icon rail
@@ -3218,12 +3292,9 @@ function initializeEventListeners() {
         }
         e.preventDefault();
         e.stopPropagation();
-        // Check if already submitting before triggering form submission
-        const form = el('chat-form');
-        if (form) {
-         const submitBtn = form.querySelector('button[type="submit"]');
-         if (submitBtn) submitBtn.click();
-        }
+        // The submit button lives outside the hidden form via form="chat-form".
+        const submitBtn = document.querySelector('button[form="chat-form"][type="submit"], .send-btn');
+        if (submitBtn) submitBtn.click();
       }
     });
   }
@@ -3400,8 +3471,8 @@ function initializeEventListeners() {
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
         // Now submit the form (the /new command handler will process it)
         setTimeout(() => {
-          const form = el('chat-form');
-          if (form) form.querySelector('button[type="submit"]').click();
+          const submitBtn = document.querySelector('button[form="chat-form"][type="submit"], .send-btn');
+          if (submitBtn) submitBtn.click();
         }, 0);
       }
     };
@@ -4036,6 +4107,81 @@ function startOdysseusApp() {
   
   // Ensure proper initial state
   voiceRecorderModule.init();
+
+  function speakOracleVoicePresenceAck(context = {}) {
+    const source = context && context.transcriptSource && typeof context.transcriptSource === 'object'
+      ? context.transcriptSource
+      : null;
+    if (!source || source.submitToChat !== true || typeof source.source !== 'string' || !source.source.startsWith('voice.')) {
+      return false;
+    }
+    const runtime = window.oracleVoiceRuntime;
+    const status = runtime && runtime.status ? runtime.status : null;
+    if (!runtime || !status || !status.active || status.state === 'cancelled') {
+      return false;
+    }
+    runtime.speak('Got it.', { lane: 'presence', mode: 'fast', interrupt: true, toast: false }).catch(() => {});
+    return true;
+  }
+
+  function submitOracleVoiceTranscript(submitBtn) {
+    const form = document.getElementById('chat-form') || (submitBtn && submitBtn.form);
+    if (typeof _updateSendBtnIcon === 'function') {
+      try { _updateSendBtnIcon(); } catch {}
+    }
+    window.setTimeout(() => {
+      if (form) {
+        if (typeof form.requestSubmit === 'function') {
+          try {
+            form.requestSubmit(submitBtn);
+            return;
+          } catch {}
+          try {
+            form.requestSubmit();
+            return;
+          } catch {}
+        }
+        const submitEvent = typeof SubmitEvent === 'function'
+          ? new SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: submitBtn || null })
+          : new Event('submit', { bubbles: true, cancelable: true });
+        form.dispatchEvent(submitEvent);
+        return;
+      }
+      if (submitBtn && typeof submitBtn.click === 'function') submitBtn.click();
+    }, 0);
+    return true;
+  }
+
+  function handleOracleFinalTranscript(transcript, context = {}) {
+    const text = typeof transcript === 'string' ? transcript.trim() : '';
+    if (!text) return false;
+    const textarea = document.getElementById('message');
+    if (!textarea) return false;
+    if (context && context.transcriptSource && typeof context.transcriptSource === 'object') {
+      const voiceSource = context.transcriptSource;
+      window.__odysseusNextVoiceTranscriptSource = JSON.stringify({
+        source: voiceSource.source,
+        voiceSessionId: voiceSource.voiceSessionId,
+        sessionId: voiceSource.sessionId,
+        mimeType: voiceSource.mimeType,
+        submitToChat: voiceSource.submitToChat === true,
+      });
+    }
+    const existingText = textarea.value.trim();
+    textarea.value = existingText ? `${existingText}\n${text}` : text;
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    const submitBtn = document.querySelector('button[form="chat-form"][type="submit"], .send-btn');
+    if (!submitBtn) return false;
+    speakOracleVoicePresenceAck(context);
+    return submitOracleVoiceTranscript(submitBtn);
+  }
+
+  realtimeVoiceModule.initRealtimeVoice({
+    getSessionId: () => sessionModule && sessionModule.getCurrentSessionId ? sessionModule.getCurrentSessionId() : null,
+    onFinalTranscript: handleOracleFinalTranscript,
+    showToast: uiModule.showToast,
+    showError: uiModule.showError,
+  });
   if (censorModule) censorModule.init();
 
   // Auto-focus message input on load
@@ -4099,7 +4245,7 @@ function startOdysseusApp() {
 
   // Section collapse/expand + drag reorder (extracted to js/section-management.js)
   initSectionCollapse(Storage);
-  initSectionDrag(Storage, loadUIVis);
+  initSectionDrag(Storage, window.loadUIVis || (() => ({})));
   
   // Handle drag over and out for individual sections
   const sections = document.querySelectorAll('.section[draggable="true"]');

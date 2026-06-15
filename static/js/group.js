@@ -35,6 +35,34 @@ const COUNCIL_MIN_AGENT_CONSENSUS = 80;
 const COUNCIL_MAX_CONSENSUS_ROUNDS = 3;
 const COUNCIL_ARTIFACT_QA_MIN_SCORE = 85;
 const COUNCIL_ARTIFACT_QA_MAX_REVISIONS = 2;
+const ORACLE_COUNCIL_PHASE_LABELS = {
+  started: 'Council workflow started.',
+  position: 'Council is opening positions.',
+  evidence: 'Council is checking evidence.',
+  convergence: 'Council is converging.',
+  consensus: 'Council is voting on consensus.',
+  synthesis: 'Council is preparing synthesis.',
+  completed: 'Council workflow completed.',
+  blocked: 'Council workflow needs review.',
+};
+
+function _requestOracleCouncilNarration(eventType, phaseKey, options = {}) {
+  const runtime = window.oracleVoiceRuntime;
+  const status = runtime && runtime.status ? runtime.status : null;
+  if (!runtime || !status || !status.active || status.state === 'cancelled' || status.state === 'interrupted') return false;
+  const message = ORACLE_COUNCIL_PHASE_LABELS[phaseKey] || ORACLE_COUNCIL_PHASE_LABELS.started;
+  window.dispatchEvent(new CustomEvent('oraclevoice:narration-request', {
+    detail: {
+      source: 'council_workflow',
+      eventType: eventType,
+      message: message,
+      councilPhase: phaseKey,
+      speak: options.speak === true,
+      requireActive: true,
+    },
+  }));
+  return true;
+}
 
 export function init(apiBase) {
   API_BASE = apiBase;
@@ -750,6 +778,8 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
   const order = _shuffleIndices(_models.length);
   const holders = [];
 
+  _requestOracleCouncilNarration('council.workflow.started', 'started');
+  _requestOracleCouncilNarration('council.phase.started', 'position');
   _appendCouncilNotice(box, 'Council round 1: role positions and implementation proposals');
   for (let turn = 0; turn < order.length; turn++) {
     const idx = order[turn];
@@ -764,6 +794,7 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
     );
   }
 
+  _requestOracleCouncilNarration('council.phase.started', 'evidence');
   _appendCouncilNotice(box, 'Council evidence round: controlled tool checks and shared findings');
   for (let turn = 0; turn < order.length; turn++) {
     const idx = order[turn];
@@ -788,6 +819,7 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
   let consensus = null;
   for (let round = 1; round <= COUNCIL_MAX_CONSENSUS_ROUNDS; round++) {
     const passOrder = round % 2 ? order.slice().reverse() : order.slice();
+    _requestOracleCouncilNarration('council.phase.started', 'convergence');
     _appendCouncilNotice(box, `Council convergence round ${round}: critique, revision, and blockers`);
     for (let turn = 0; turn < passOrder.length; turn++) {
       const idx = passOrder[turn];
@@ -802,6 +834,7 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
       );
     }
 
+    _requestOracleCouncilNarration('council.phase.started', 'consensus');
     _appendCouncilNotice(box, `Council consensus vote ${round}: target ${COUNCIL_CONSENSUS_TARGET}%`);
     const voteHolders = [];
     for (let turn = 0; turn < order.length; turn++) {
@@ -829,6 +862,7 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
   }
 
   if (!consensus?.reached) {
+    _requestOracleCouncilNarration('council.workflow.blocked', 'blocked');
     _appendCouncilNotice(box, `Council stopped: consensus stayed below ${COUNCIL_CONSENSUS_TARGET}%; no Idea Loop artifact pushed`);
     _saveState();
     return holders;
@@ -838,6 +872,7 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
   const stage = _councilStageFromTask(msg);
   const buildPaths = stage === 'final' ? _councilBuildPaths(originalTask || msg) : null;
   const synthesisIdx = order[order.length - 1] ?? 0;
+  _requestOracleCouncilNarration('council.phase.started', 'synthesis');
   _appendCouncilNotice(
     box,
     stage === 'final'
@@ -894,6 +929,7 @@ async function _sendCouncilDeliberative(msg, box, originalTask = msg) {
     consensus,
     stage,
   });
+  _requestOracleCouncilNarration('council.workflow.completed', 'completed');
   _saveState();
   return holders;
 }
@@ -1485,8 +1521,12 @@ function _hasCouncilStageMarker(task) {
   return /\[ODYSSEUS_WORKSPACE_STAGE:(ideas|sketch|final)\]/i.test(String(task || ''));
 }
 
+function _hasCouncilProtocolMarker(task) {
+  return /\[ODYSSEUS_COUNCIL_PROTOCOL:deliberative\]/i.test(String(task || ''));
+}
+
 function _isCouncilWorkflowMessage(task) {
-  return document.body.classList.contains('council-mode-active') || _hasCouncilStageMarker(task);
+  return _hasCouncilProtocolMarker(task) || _hasCouncilStageMarker(task);
 }
 
 function _withCouncilProtocol(task) {
@@ -2236,7 +2276,7 @@ async function _startWorkspaceLocalPreview(kind, itemId) {
 }
 
 async function _pushCouncilIdea(task, holder, modelIdx, publishOptions = {}) {
-  if (!document.body.classList.contains('council-mode-active') && !_hasCouncilStageMarker(task)) return;
+  if (!_isCouncilWorkflowMessage(task)) return;
   if (holder?.dataset?.ideaLoopPushed === '1') return;
 
   const stage = _councilStageFromTask(task);

@@ -55,7 +55,8 @@ class TTSService:
             kokoro = self._get_kokoro()
             return kokoro is not None and kokoro.available
         if provider.startswith("endpoint:"):
-            return True  # assume reachable; errors surface at synthesis time
+            endpoint_id = provider.split(":", 1)[1]
+            return self._resolve_endpoint_config(endpoint_id) is not None
         return False
 
     # ── Cache ──
@@ -91,19 +92,33 @@ class TTSService:
 
     # ── API endpoint ──
 
-    def _synthesize_api(self, text: str, endpoint_id: str, model: str, voice: str, speed: float = 1.0) -> Optional[bytes]:
+    def _resolve_endpoint_config(self, endpoint_id: str) -> Optional[Dict[str, Any]]:
         from src.database import SessionLocal, ModelEndpoint
 
         db = SessionLocal()
         try:
             ep = db.query(ModelEndpoint).filter(ModelEndpoint.id == endpoint_id).first()
             if not ep:
-                logger.error(f"TTS endpoint {endpoint_id} not found")
                 return None
-            base_url = ep.base_url.rstrip("/")
-            api_key = ep.api_key
+            if getattr(ep, "is_enabled", True) is False:
+                return None
+            base_url = str(getattr(ep, "base_url", "") or "").rstrip("/")
+            if not base_url:
+                return None
+            return {
+                "base_url": base_url,
+                "api_key": getattr(ep, "api_key", None),
+            }
         finally:
             db.close()
+
+    def _synthesize_api(self, text: str, endpoint_id: str, model: str, voice: str, speed: float = 1.0) -> Optional[bytes]:
+        endpoint_config = self._resolve_endpoint_config(endpoint_id)
+        if not endpoint_config:
+            logger.error(f"TTS endpoint {endpoint_id} not found or disabled")
+            return None
+        base_url = endpoint_config["base_url"]
+        api_key = endpoint_config.get("api_key")
 
         url = base_url + "/audio/speech"
         headers = {"Content-Type": "application/json"}
@@ -180,6 +195,13 @@ class TTSService:
             return base64.b64encode(audio).decode("utf-8")
         return None
 
+    def synthesize_stream(self, text: str, chunk_size: int = 64 * 1024):
+        audio = self.synthesize(text)
+        if not audio:
+            return
+        for offset in range(0, len(audio), chunk_size):
+            yield audio[offset:offset + chunk_size]
+
     def set_voice(self, voice: str):
         """Legacy no-op — voice is now managed via admin settings."""
 
@@ -187,6 +209,7 @@ class TTSService:
         settings = self._load_settings()
         provider = settings["tts_provider"]
         tts_enabled = settings.get("tts_enabled", True)
+        effective_provider = provider if tts_enabled else "disabled"
 
         cache_files = list(self.cache_dir.glob("*.wav")) + list(self.cache_dir.glob("*.mp3"))
         cache_size = sum(f.stat().st_size for f in cache_files)
@@ -195,21 +218,50 @@ class TTSService:
         stats = {
             "available": is_available,
             "ready": is_available,
-            "provider": provider,
+            "provider": effective_provider,
             "model": settings["tts_model"],
             "voice": settings["tts_voice"],
             "speed": float(settings.get("tts_speed", "1")),
             "cache_entries": len(cache_files),
             "cache_size_mb": round(cache_size / (1024 * 1024), 2),
+            "setup_status": "ready" if is_available else "disabled",
+            "setup_blocker": None if is_available else "tts_disabled",
+            "supports_chunked_audio_stream": bool(
+                is_available and provider not in {"browser", "disabled"}
+            ),
         }
 
         if provider == "local":
             kokoro = self._get_kokoro()
             stats["model"] = "Kokoro-82M (GPU)" if (kokoro and kokoro.available) else "Kokoro (not loaded)"
+            if not tts_enabled:
+                stats["setup_status"] = "disabled"
+                stats["setup_blocker"] = "tts_disabled"
+            elif not is_available:
+                stats["setup_status"] = "model_unavailable"
+                stats["setup_blocker"] = "local_tts_model_unavailable"
+                stats["install_hint"] = "Install Kokoro and ensure CUDA is available, or configure an OpenAI-compatible Text-to-Speech endpoint."
         elif provider == "browser":
             stats["model"] = "Browser (Web Speech API)"
+            stats["setup_status"] = "ready" if tts_enabled else "disabled"
+            stats["setup_blocker"] = None if tts_enabled else "tts_disabled"
         elif provider.startswith("endpoint:"):
-            stats["endpoint_id"] = provider.split(":", 1)[1]
+            endpoint_id = provider.split(":", 1)[1]
+            endpoint_config = self._resolve_endpoint_config(endpoint_id) if tts_enabled else None
+            stats["endpoint_id"] = endpoint_id
+            if not tts_enabled:
+                stats["setup_status"] = "disabled"
+                stats["setup_blocker"] = "tts_disabled"
+            elif endpoint_config is None:
+                stats["available"] = False
+                stats["ready"] = False
+                stats["setup_status"] = "endpoint_missing"
+                stats["setup_blocker"] = "tts_endpoint_missing"
+                stats["supports_chunked_audio_stream"] = False
+                stats["install_hint"] = "Configure an enabled OpenAI-compatible Text-to-Speech endpoint before selecting this provider."
+            else:
+                stats["setup_status"] = "ready"
+                stats["setup_blocker"] = None
 
         return stats
 

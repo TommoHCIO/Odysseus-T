@@ -7,7 +7,7 @@
 //   - Other static assets (images/fonts/libs): cache-first with bg refresh.
 //   - API / non-GET: never cached.
 // Bump CACHE_NAME whenever the precache list or SW logic changes.
-const CACHE_NAME = 'odysseus-v326';
+const CACHE_NAME = 'odysseus-v399';
 
 // Core shell precached on install so repeat opens are instant without any
 // network wait. Keep this list in sync with the <script type="module"> tags
@@ -19,13 +19,25 @@ const PRECACHE = [
   '/static/js/storage.js',
   '/static/js/ui.js',
   '/static/js/markdown.js',
+  '/static/js/emojiShortcodes.js',
   '/static/js/dragSort.js',
   '/static/js/sessions.js',
   '/static/js/memory.js',
   '/static/js/skills.js',
+  '/static/js/workspace.js',
   '/static/js/tourHints.js',
   '/static/js/fileHandler.js',
   '/static/js/voiceRecorder.js',
+  '/static/js/audioPlayback.js',
+  '/static/js/cartesiaRealtimeStt.js',
+  '/static/js/cartesiaRealtimeTts.js',
+  '/static/js/voiceActivityDetection.js',
+  '/static/js/voiceMicCapture.js',
+  '/static/js/oracleSpeechRecognition.js',
+  '/static/js/voiceInterrupt.js',
+  '/static/js/voiceRuntime.js',
+  '/static/js/voiceOrb.js',
+  '/static/js/realtimeVoice.js',
   '/static/js/models.js',
   '/static/js/rag.js',
   '/static/js/presets.js',
@@ -39,6 +51,7 @@ const PRECACHE = [
   '/static/js/chatStream.js',
   '/static/js/chat.js',
   '/static/js/cookbook.js',
+  '/static/js/cookbookRunning.js',
   '/static/js/search-chat.js',
   '/static/js/compare/index.js',
   '/static/js/theme.js',
@@ -48,6 +61,8 @@ const PRECACHE = [
   '/static/js/init.js',
   '/static/js/slashCommands.js',
   '/static/js/emailInbox.js',
+  '/static/js/whatsappInbox.js',
+  '/static/js/whatsappLibrary.js',
   '/static/js/emailLibrary/utils.js',
   '/static/js/emailLibrary/signatureFold.js',
   '/static/js/emailLibrary/state.js',
@@ -60,6 +75,7 @@ const PRECACHE = [
   '/static/js/keyboard-shortcuts.js',
   '/static/js/sidebar-layout.js',
   '/static/js/section-management.js',
+  '/static/lib/qrcode.min.js',
   '/static/lib/highlight.min.js',
 ];
 

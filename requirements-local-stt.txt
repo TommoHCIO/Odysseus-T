@@ -1,0 +1,7 @@
+# Local Speech-to-Text dependencies for the Docker build option.
+# Enable with:
+#   ODYSSEUS_INSTALL_LOCAL_STT=true docker compose build odysseus
+#
+# Keep this narrow. requirements-optional.txt includes unrelated feature
+# extras; this file is only for O.R.A.C.L.E./voice local transcription.
+faster-whisper

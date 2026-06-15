@@ -5,6 +5,7 @@
  */
 
 import uiModule from './ui.js';
+import EMOJI_SHORTCODES from './emojiShortcodes.js?v=20260614emoji2';
 
 var escapeHtml = uiModule.esc;
 
@@ -283,6 +284,8 @@ function createThinkingSection(thinkingContent, index = 0, thinkingTime = null) 
 // the surrounding text color (project rule: never colorful emoji). Operates on
 // rendered HTML: only touches text outside tags and skips <code>/<pre>.
 const _EMOJI_RE = /\p{Extended_Pictographic}/u;
+const _EMOJI_SHORTCODE_DETECT_RE = /(^|[^A-Za-z0-9]):[A-Za-z0-9_+\-][A-Za-z0-9_+\-\s]{0,47}:/;
+const _EMOJI_SHORTCODE_RE = /(^|[^A-Za-z0-9]):([A-Za-z0-9_+\-][A-Za-z0-9_+\-\s]{0,47}):/g;
 const _emojiSeg = (typeof Intl !== 'undefined' && Intl.Segmenter)
   ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 
@@ -302,10 +305,21 @@ function _emojiImg(emoji) {
   // supply the glyph it returns a transparent SVG, so the mask shows nothing.
   return `<span class="emoji" role="img" aria-label="${emoji}" style="--em:url('/api/emoji/${code}.svg')"></span>`;
 }
-function _svgifyText(text) {
-  if (!_emojiSeg) return text;
+function _emojiShortcodeKey(alias) {
+  const value = String(alias || '').trim().toLowerCase();
+  if (/^[+-]\d+$/.test(value)) return value;
+  return value.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function _replaceEmojiShortcodes(text) {
+  return String(text).replace(_EMOJI_SHORTCODE_RE, (match, prefix, alias) => {
+    return prefix + (EMOJI_SHORTCODES[_emojiShortcodeKey(alias)] || `:${alias}:`);
+  });
+}
+function _renderEmojiText(text) {
+  const withShortcodes = _replaceEmojiShortcodes(text);
+  if (!_useSvgEmoji() || !_emojiSeg || !_EMOJI_RE.test(withShortcodes)) return withShortcodes;
   let out = '';
-  for (const { segment } of _emojiSeg.segment(text)) {
+  for (const { segment } of _emojiSeg.segment(withShortcodes)) {
     out += _EMOJI_RE.test(segment) ? _emojiImg(segment) : segment;
   }
   return out;
@@ -316,7 +330,7 @@ function _useSvgEmoji() {
 }
 
 export function svgifyEmoji(html) {
-  if (!_useSvgEmoji() || !html || !_EMOJI_RE.test(html)) return html;
+  if (!html || (!_EMOJI_RE.test(html) && !_EMOJI_SHORTCODE_DETECT_RE.test(html))) return html;
   const parts = html.split(/(<[^>]*>)/);   // odd indices = tags
   let codeDepth = 0;
   for (let i = 0; i < parts.length; i++) {
@@ -326,7 +340,9 @@ export function svgifyEmoji(html) {
       else if (/^<\/(pre|code)\s*>/.test(t)) codeDepth = Math.max(0, codeDepth - 1);
       continue;
     }
-    if (codeDepth === 0 && _EMOJI_RE.test(parts[i])) parts[i] = _svgifyText(parts[i]);
+    if (codeDepth === 0 && (_EMOJI_RE.test(parts[i]) || _EMOJI_SHORTCODE_DETECT_RE.test(parts[i]))) {
+      parts[i] = _renderEmojiText(parts[i]);
+    }
   }
   return parts.join('');
 }
@@ -364,7 +380,7 @@ export function processWithThinking(text) {
     html += mdToHtml(content);
   }
 
-  return _useSvgEmoji() ? svgifyEmoji(html) : html;
+  return svgifyEmoji(html);
 }
 
 /**
@@ -622,7 +638,7 @@ export function mdToHtml(src) {
     s = s.replace(`___CODE_BLOCK_${index}___`, block);
   });
 
-  return _useSvgEmoji() ? svgifyEmoji(s) : s;
+  return svgifyEmoji(s);
 }
 
 /**

@@ -1511,6 +1511,13 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
             "text to speech": "tts_enabled", "tts provider": "tts_provider",
             "speech speed": "tts_speed", "voice speed": "tts_speed",
             "stt": "stt_enabled", "speech to text": "stt_enabled", "transcription": "stt_enabled",
+            "stt provider": "stt_provider", "speech to text provider": "stt_provider",
+            "transcription provider": "stt_provider",
+            "stt model": "stt_model", "speech to text model": "stt_model",
+            "transcription model": "stt_model",
+            "operative local stt model": "stt_model", "oracle operative stt model": "stt_model",
+            "stt language": "stt_language", "speech to text language": "stt_language",
+            "transcription language": "stt_language",
             "search engine": "search_provider", "search provider": "search_provider",
             "search results": "search_result_count", "result count": "search_result_count",
             "default model": "default_model", "chat model": "default_model",
@@ -1629,6 +1636,8 @@ async def do_manage_settings(content: str, owner: Optional[str] = None) -> Dict:
                 value = _coerce(value, DEFAULT_SETTINGS[key])
             except (ValueError, TypeError):
                 return {"error": f"'{value}' isn't a valid value for {key} (expected {type(DEFAULT_SETTINGS[key]).__name__}).", "exit_code": 1}
+            if key == "stt_model" and str(value).strip().lower() in {"operative", "oracle", "oracle operative"}:
+                value = "base.en"
             if key in _ENUMS and str(value).lower() not in _ENUMS[key]:
                 return {"error": f"{key} must be one of: {', '.join(_ENUMS[key])}.", "exit_code": 1}
             s = load_settings()

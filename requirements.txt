@@ -1,5 +1,7 @@
 fastapi
 uvicorn
+# Runtime websocket backend for FastAPI/Uvicorn routes such as /api/voice/ws.
+websockets
 python-multipart
 python-dotenv
 httpx

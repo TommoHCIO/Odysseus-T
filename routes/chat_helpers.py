@@ -285,11 +285,35 @@ async def preprocess(
     )
 
 
-def add_user_message(sess, chat_handler, preprocessed: PreprocessedMessage, incognito: bool = False):
+def _sanitize_voice_transcript_source(source: Any) -> Optional[dict]:
+    if not isinstance(source, dict):
+        return None
+    allowed = {}
+    for key in ("source", "voiceSessionId", "sessionId", "mimeType"):
+        value = source.get(key)
+        if isinstance(value, str) and value.strip():
+            allowed[key] = value.strip()[:160]
+    if "submitToChat" in source:
+        allowed["submitToChat"] = bool(source.get("submitToChat"))
+    return allowed or None
+
+
+def add_user_message(
+    sess,
+    chat_handler,
+    preprocessed: PreprocessedMessage,
+    incognito: bool = False,
+    voice_transcript_source: Optional[dict] = None,
+):
     """Add user message to session history and update session name.
     In incognito mode, still add to in-memory history (for conversation context)
     but skip session name update (which would persist)."""
-    user_meta = {"attachments": preprocessed.attachment_meta} if preprocessed.attachment_meta else None
+    user_meta = {"attachments": preprocessed.attachment_meta} if preprocessed.attachment_meta else {}
+    safe_voice_source = _sanitize_voice_transcript_source(voice_transcript_source)
+    if safe_voice_source:
+        user_meta["voice_transcript_source"] = safe_voice_source
+    if not user_meta:
+        user_meta = None
     sess.add_message(ChatMessage("user", preprocessed.user_content, metadata=user_meta))
     if not incognito:
         chat_handler.update_session_name_if_needed(sess, preprocessed.text_for_context)
@@ -447,6 +471,7 @@ async def build_chat_context(
     use_enhanced_message: bool = False,
     agent_mode: bool = False,
     council_mode: bool = False,
+    voice_transcript_source: Optional[dict] = None,
 ) -> ChatContext:
     """Build the full context (preface + messages) for an LLM call.
 
@@ -467,7 +492,13 @@ async def build_chat_context(
     )
 
     # Add user message to history
-    add_user_message(sess, chat_handler, preprocessed, incognito=incognito)
+    add_user_message(
+        sess,
+        chat_handler,
+        preprocessed,
+        incognito=incognito,
+        voice_transcript_source=voice_transcript_source,
+    )
 
     # Fire events
     if not incognito:

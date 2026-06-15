@@ -395,6 +395,7 @@ class McpManager:
                     "name": tool["name"],
                     "qualified_name": f"mcp__{server_id}__{tool['name']}",
                     "description": tool.get("description", ""),
+                    "input_schema": tool.get("input_schema", {}),
                     "is_disabled": tool["name"] in disabled,
                 })
         return result

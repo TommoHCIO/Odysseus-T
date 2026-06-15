@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 from typing import Any, Dict, Iterable, List
 
 import httpx
@@ -93,9 +94,15 @@ def fetch_registry_catalog(
     source_id: str,
     source_priority: int,
     client: Any | None = None,
-    page_limit: int = 2,
+    page_limit: int | None = None,
     request_timeout: float = 15.0,
 ) -> List[Dict[str, Any]]:
+    if page_limit is None:
+        try:
+            page_limit = int(os.environ.get("ODYSSEUS_MCP_REGISTRY_PAGE_LIMIT", "2"))
+        except ValueError:
+            page_limit = 2
+    page_limit = max(1, min(page_limit, 25))
     http_client = client or httpx.Client()
     close_client = client is None
     cursor = None

@@ -10,8 +10,8 @@ const API_BASE = window.location.origin;
 
 // ── Recent + Favorites persistence ──
 // Recent is auto-tracked (last 5 picks, most-recent-first) and lives in its
-// own key. Favorites is the SAME key the sidebar Models section uses, so a
-// favorite toggled here shows up there and vice-versa.
+// own key. Favorites is shared with the internal model cache so existing
+// model preferences keep working across picker surfaces.
 const RECENT_KEY = 'odysseus-model-recent';
 const FAVORITES_KEY = 'odysseus-model-favorites';
 const RECENT_MAX = 5;
@@ -42,7 +42,7 @@ function _toggleFavorite(mid) {
   if (i >= 0) favs.splice(i, 1);
   else favs.push(mid);
   _saveList(FAVORITES_KEY, favs);
-  // Keep the sidebar Models section (same key) in sync if it's mounted.
+  // Keep model-dependent surfaces in sync if they're mounted.
   try {
     if (window.modelsModule && typeof window.modelsModule.refreshModels === 'function') {
       window.modelsModule.refreshModels();

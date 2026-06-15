@@ -6,6 +6,46 @@ const API_BASE = window.location.origin;
 const OBSIDIAN_MODAL_ID = 'obsidian-modal';
 const IDEA_LOOP_MODAL_ID = 'idea-loop-modal';
 const OBSIDIAN_GRAPH_3D_SCRIPT = '/static/lib/3d-force-graph.min.js';
+const ORACLE_WORKSPACE_PREVIEW_MESSAGES = {
+  started: 'A local preview is starting.',
+  ready: 'The local preview is ready.',
+  failed: 'The local preview failed.',
+  stopped: 'The local preview stopped.',
+};
+
+function _requestOracleWorkspacePreviewNarration(eventType, messageKey, options = {}) {
+  const runtime = window.oracleVoiceRuntime;
+  const status = runtime && runtime.status ? runtime.status : null;
+  if (!runtime || !status || !status.active || status.state === 'cancelled' || status.state === 'interrupted') return false;
+  const message = ORACLE_WORKSPACE_PREVIEW_MESSAGES[messageKey] || ORACLE_WORKSPACE_PREVIEW_MESSAGES.ready;
+  window.dispatchEvent(new CustomEvent('oraclevoice:narration-request', {
+    detail: {
+      source: 'workspace_preview',
+      eventType: eventType,
+      message: message,
+      workspacePreviewPhase: messageKey,
+      speak: options.speak === true,
+      requireActive: true,
+    },
+  }));
+  return true;
+}
+
+function _requestOracleWorkspacePreviewStarted() {
+  return _requestOracleWorkspacePreviewNarration('workspace.preview.started', 'started', { speak: true });
+}
+
+function _requestOracleWorkspacePreviewReady() {
+  return _requestOracleWorkspacePreviewNarration('workspace.preview.ready', 'ready', { speak: true });
+}
+
+function _requestOracleWorkspacePreviewFailed() {
+  return _requestOracleWorkspacePreviewNarration('workspace.preview.failed', 'failed', { speak: true });
+}
+
+function _requestOracleWorkspacePreviewStopped() {
+  return _requestOracleWorkspacePreviewNarration('workspace.preview.stopped', 'stopped', { speak: true });
+}
 
 const COLLECTIONS = {
   requests: {
@@ -128,6 +168,13 @@ let _obsidianSkills = [];
 let _obsidianSkillsLoading = false;
 let _obsidianSkillsError = '';
 let _obsidianSkillQuery = '';
+let _obsidianSkillImporting = false;
+let _obsidianSkillImportError = '';
+let _obsidianSkillImportResult = null;
+let _obsidianPrefs = {};
+let _obsidianPrefsLoaded = false;
+let _obsidianPrefsLoading = false;
+let _obsidianPrefsError = '';
 let _selectedSkillName = '';
 let _selectedGraphNodeId = '';
 let _obsidianGraphQuery = '';
@@ -231,6 +278,22 @@ async function _loadObsidianSkills({ render = true } = {}) {
     _obsidianSkillsError = err.message || 'Could not load skills';
   } finally {
     _obsidianSkillsLoading = false;
+  }
+  if (render && _modal(OBSIDIAN_MODAL_ID)) _renderObsidian();
+}
+
+async function _loadObsidianPrefs({ render = true } = {}) {
+  if (_obsidianPrefsLoading) return;
+  _obsidianPrefsLoading = true;
+  _obsidianPrefsError = '';
+  try {
+    const data = await _request('/api/prefs');
+    _obsidianPrefs = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    _obsidianPrefsLoaded = true;
+  } catch (err) {
+    _obsidianPrefsError = err.message || 'Could not load preferences';
+  } finally {
+    _obsidianPrefsLoading = false;
   }
   if (render && _modal(OBSIDIAN_MODAL_ID)) _renderObsidian();
 }
@@ -450,7 +513,8 @@ function _obsidianHealth() {
   const journal = notes.filter((note) => _noteKind(note) === 'journal');
   const links = _obsidianState?.graph?.edges?.length || 0;
   const last = notes.reduce((best, note) => String(note.updated_at || '') > String(best || '') ? note.updated_at : best, '');
-  return { notes, pending, knowledge, skills, journal, links, last };
+  const preferences = _prefEntries();
+  return { notes, pending, knowledge, skills, journal, links, last, preferences };
 }
 
 function _noteMatchesQuery(note, query) {
@@ -474,6 +538,13 @@ function _noteMatchesQuery(note, query) {
 
 function _filteredObsidianNotes() {
   return (_obsidianState?.notes || []).filter((note) => _noteMatchesQuery(note, _obsidianQuery));
+}
+
+function _knowledgeNotes() {
+  return (_obsidianState?.notes || [])
+    .filter((note) => _noteKind(note) === 'knowledge')
+    .filter((note) => _noteMatchesQuery(note, _obsidianQuery))
+    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
 }
 
 function _recentActivityNotes() {
@@ -535,6 +606,30 @@ function _frontmatterRows(note) {
     .slice(0, 10)
     .map(([key, value]) => `<div><span>${_escape(key)}</span><strong>${_escape(Array.isArray(value) ? value.join(', ') : value)}</strong></div>`)
     .join('');
+}
+
+function _prefEntries() {
+  return Object.entries(_obsidianPrefs || {})
+    .filter(([key]) => key !== '_users')
+    .sort(([a], [b]) => a.localeCompare(b));
+}
+
+function _isSensitivePrefKey(key) {
+  return /(?:token|secret|password|api[_-]?key|credential)/i.test(String(key || ''));
+}
+
+function _formatPreferenceValue(key, value) {
+  if (_isSensitivePrefKey(key)) return 'redacted';
+  if (value === null || value === undefined) return 'unset';
+  if (typeof value === 'boolean') return value ? 'on' : 'off';
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'string') return value.length > 180 ? `${value.slice(0, 180)}...` : value;
+  try {
+    const text = JSON.stringify(value);
+    return text.length > 180 ? `${text.slice(0, 180)}...` : text;
+  } catch {
+    return String(value);
+  }
 }
 
 function _statusChip(label, value, tone = '') {
@@ -1209,6 +1304,7 @@ function _renderObsidianMetrics() {
       ${_statusChip('pending', health.pending.length, health.pending.length ? 'pending' : '')}
       ${_statusChip('knowledge', health.knowledge.length, 'knowledge')}
       ${_statusChip('skills', health.skills.length || _obsidianSkills.length, 'skills')}
+      ${_statusChip('prefs', health.preferences.length, 'prefs')}
       ${_statusChip('journals', health.journal.length, 'journal')}
       ${_statusChip('links', health.links, 'links')}
       <span class="obsidian-chip is-path" title="${_escape(_obsidianState?.root || '')}"><strong>${_escape(_formatShortDate(health.last) || 'never')}</strong>last update</span>
@@ -1221,8 +1317,10 @@ function _renderObsidianTabs() {
   const activityCount = _recentActivityNotes().length;
   const tabs = [
     ['vault', 'Vault', health.notes.length],
+    ['knowledge', 'Knowledge', health.knowledge.length],
     ['curation', 'Curation', health.pending.length],
     ['skills', 'Skills', _obsidianSkills.length || health.skills.length],
+    ['preferences', 'Preferences', health.preferences.length],
     ['graph', 'Graph', graphCount],
     ['activity', 'Activity', activityCount],
   ];
@@ -1464,6 +1562,18 @@ function _renderObsidianSkillDetail() {
     </section>`;
 }
 
+function _renderMattPocockImportStatus() {
+  if (_obsidianSkillImportError) {
+    return `<div class="obsidian-error">Matt Pocock import failed: ${_escape(_obsidianSkillImportError)}</div>`;
+  }
+  if (!_obsidianSkillImportResult) return '';
+  const counts = _obsidianSkillImportResult.counts || {};
+  const created = counts.created ?? _obsidianSkillImportResult.created ?? 0;
+  const updated = counts.updated ?? _obsidianSkillImportResult.updated ?? 0;
+  const skipped = counts.skipped ?? _obsidianSkillImportResult.skipped ?? 0;
+  return `<div class="obsidian-empty">Matt Pocock skills: ${_escape(created)} created, ${_escape(updated)} updated, ${_escape(skipped)} skipped.</div>`;
+}
+
 function _renderObsidianVaultTab() {
   const notes = _filteredObsidianNotes();
   return `
@@ -1491,6 +1601,21 @@ function _renderObsidianCurationTab() {
         <div class="obsidian-curation-list">${_renderPendingKnowledge()}</div>
       </aside>
       <main class="obsidian-main-panel">${_renderObsidianNoteEditor()}</main>
+      ${_renderObsidianContext()}
+    </div>`;
+}
+
+function _renderObsidianKnowledgeTab() {
+  const notes = _knowledgeNotes();
+  return `
+    <div class="obsidian-cockpit-grid">
+      <aside class="obsidian-rail">
+        <div class="obsidian-pane-title"><strong>Saved Knowledge</strong><span>${_escape(notes.length)}</span></div>
+        <div class="obsidian-note-list">${_renderObsidianNoteList({ notes })}</div>
+      </aside>
+      <main class="obsidian-main-panel">
+        ${_obsidianQuery.trim() ? _renderObsidianSearchResults() : _renderObsidianNoteEditor()}
+      </main>
       ${_renderObsidianContext()}
     </div>`;
 }
@@ -1523,6 +1648,11 @@ function _renderObsidianSkillsTab() {
           <span>Filter skills</span>
           <input type="search" data-action="obsidian-skill-search" value="${_escape(_obsidianSkillQuery)}" placeholder="Search SKILL.md procedures" autocomplete="off" />
         </label>
+        <div class="obsidian-vault-actions">
+          <button type="button" class="doclib-card-action-btn obsidian-primary-action" data-action="obsidian-import-matt-pocock" ${_obsidianSkillImporting ? 'disabled' : ''}>${_escape(_obsidianSkillImporting ? 'Importing...' : 'Import Matt Pocock')}</button>
+          <button type="button" class="doclib-card-action-btn" data-action="obsidian-refresh-skills">Refresh</button>
+        </div>
+        ${_renderMattPocockImportStatus()}
         <div class="obsidian-skill-list">${_renderObsidianSkillList()}</div>
       </aside>
       <main class="obsidian-main-panel">${_renderObsidianSkillDetail()}</main>
@@ -1530,9 +1660,48 @@ function _renderObsidianSkillsTab() {
     </div>`;
 }
 
+function _renderObsidianPreferencesTab() {
+  const entries = _prefEntries();
+  const rows = entries.map(([key, value]) => `
+    <div>
+      <span>${_escape(key)}</span>
+      <strong>${_escape(_formatPreferenceValue(key, value))}</strong>
+    </div>`).join('');
+  return `
+    <div class="obsidian-cockpit-grid obsidian-preferences-grid">
+      <aside class="obsidian-rail">
+        <div class="obsidian-pane-title"><strong>Preferences</strong><span>${_escape(entries.length)}</span></div>
+        <div class="obsidian-activity-list">
+          ${entries.length ? entries.map(([key, value]) => `
+            <button type="button" class="obsidian-activity-row" data-action="obsidian-pref-focus" data-pref-key="${_escape(key)}">
+              <span><strong>${_escape(key)}</strong><b>${_escape(typeof value)}</b></span>
+              <small>${_escape(_formatPreferenceValue(key, value))}</small>
+            </button>`).join('') : '<div class="obsidian-empty">No user preferences saved yet.</div>'}
+        </div>
+      </aside>
+      <main class="obsidian-main-panel">
+        <section class="obsidian-skill-detail">
+          <div class="obsidian-pane-title">
+            <strong>User preferences</strong>
+            <span>${_escape(_obsidianPrefsLoading ? 'loading' : _obsidianPrefsLoaded ? 'loaded' : 'not loaded')}</span>
+          </div>
+          ${_obsidianPrefsError ? `<div class="obsidian-error">Preferences failed to load: ${_escape(_obsidianPrefsError)}</div>` : ''}
+          <p>Per-user choices that change how Odysseus behaves.</p>
+          <div class="obsidian-yaml-summary">${rows || '<em>No preferences stored for this user.</em>'}</div>
+          <div class="obsidian-vault-actions">
+            <button type="button" class="doclib-card-action-btn" data-action="obsidian-refresh-preferences">Refresh preferences</button>
+          </div>
+        </section>
+      </main>
+      ${_renderObsidianContext()}
+    </div>`;
+}
+
 function _renderObsidianStage() {
+  if (_obsidianTab === 'knowledge') return _renderObsidianKnowledgeTab();
   if (_obsidianTab === 'curation') return _renderObsidianCurationTab();
   if (_obsidianTab === 'skills') return _renderObsidianSkillsTab();
+  if (_obsidianTab === 'preferences') return _renderObsidianPreferencesTab();
   if (_obsidianTab === 'graph') return _renderObsidianGraphTab();
   if (_obsidianTab === 'activity') return _renderObsidianActivityTab();
   return _renderObsidianVaultTab();
@@ -1962,6 +2131,9 @@ function _wireObsidian() {
       if (_obsidianTab === 'skills' && !_obsidianSkills.length && !_obsidianSkillsLoading) {
         _loadObsidianSkills({ render: true });
       }
+      if (_obsidianTab === 'preferences' && !_obsidianPrefsLoaded && !_obsidianPrefsLoading) {
+        _loadObsidianPrefs({ render: true });
+      }
       _renderObsidian();
     });
   });
@@ -1969,7 +2141,12 @@ function _wireObsidian() {
   modal.querySelector('[data-action="obsidian-refresh"]')?.addEventListener('click', async () => {
     if (!_confirmDiscardObsidianChanges()) return;
     _clearObsidianDirty();
-    await _loadObsidian();
+    await Promise.all([
+      _loadObsidian(),
+      _loadObsidianSkills({ render: false }),
+      _loadObsidianPrefs({ render: false }),
+    ]);
+    _renderObsidian();
   });
 
   modal.querySelector('[data-action="obsidian-new-note"]')?.addEventListener('click', () => {
@@ -2031,9 +2208,41 @@ function _wireObsidian() {
     _renderObsidian();
   });
 
+  modal.querySelector('[data-action="obsidian-import-matt-pocock"]')?.addEventListener('click', async () => {
+    if (_obsidianSkillImporting) return;
+    _obsidianSkillImporting = true;
+    _obsidianSkillImportError = '';
+    _renderObsidian();
+    try {
+      const result = await _request('/api/skills/import/matt-pocock', {
+        method: 'POST',
+        body: JSON.stringify({
+          buckets: ['engineering', 'productivity', 'misc'],
+          status: 'published',
+          update_existing: true,
+        }),
+      });
+      _obsidianSkillImportResult = result;
+      const counts = result.counts || {};
+      uiModule.showToast?.(`Matt Pocock import: ${counts.created || 0} created, ${counts.updated || 0} updated, ${counts.skipped || 0} skipped`);
+      await _loadObsidianSkills({ render: false });
+      await _loadObsidian();
+    } catch (err) {
+      _obsidianSkillImportError = err.message || 'Could not import Matt Pocock skills';
+      uiModule.showToast?.(`Matt Pocock import failed: ${_obsidianSkillImportError}`);
+    } finally {
+      _obsidianSkillImporting = false;
+      _renderObsidian();
+    }
+  });
+
   modal.querySelector('[data-action="obsidian-refresh-skills"]')?.addEventListener('click', async () => {
     await _loadObsidianSkills({ render: false });
     await _loadObsidian();
+  });
+
+  modal.querySelector('[data-action="obsidian-refresh-preferences"]')?.addEventListener('click', async () => {
+    await _loadObsidianPrefs({ render: true });
   });
 
   modal.querySelectorAll('.obsidian-note-row').forEach((row) => {
@@ -2375,10 +2584,13 @@ async function _sendCardToCouncil(kind, id) {
 
 async function _startLocalPreview(kind, id) {
   try {
+    _requestOracleWorkspacePreviewStarted();
     await _request(`/api/workspace/preview/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/start`, { method: 'POST' });
+    _requestOracleWorkspacePreviewReady();
     uiModule.showToast?.('Local preview started');
     await _load();
   } catch (err) {
+    _requestOracleWorkspacePreviewFailed();
     uiModule.showToast?.(`Local preview failed: ${err.message}`);
     await _load();
   }
@@ -2387,6 +2599,7 @@ async function _startLocalPreview(kind, id) {
 async function _stopLocalPreview(kind, id) {
   try {
     await _request(`/api/workspace/preview/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/stop`, { method: 'POST' });
+    _requestOracleWorkspacePreviewStopped();
     uiModule.showToast?.('Local preview stopped');
     await _load();
   } catch (err) {
@@ -2477,6 +2690,7 @@ export function openObsidian(options = {}) {
   if (!_state) _load();
   if (!_obsidianState) _loadObsidian();
   if (!_obsidianSkills.length) _loadObsidianSkills({ render: true });
+  if (!_obsidianPrefsLoaded) _loadObsidianPrefs({ render: true });
 }
 
 export function openIdeaLoop() {
